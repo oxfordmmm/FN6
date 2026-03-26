@@ -1,0 +1,12 @@
+[package]
+name = "fn5"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.6.0", features = ["derive"] }
+flate2 = "1.1.9"
+rayon = "1.11.0"
+serde = { version = "1.0.228", features = ["serde_derive"] }
+sha2 = "0.11.0"
+sha256 = "1.6.0"
