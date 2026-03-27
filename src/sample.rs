@@ -6,9 +6,10 @@ use std::{ffi::OsStr, fmt};
 
 use flate2::read::MultiGzDecoder;
 
-use serde::{Deserialize, Serialize};
+use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Archive)]
+#[repr(C)]
 pub struct Sample {
     pub header: SampleHeader,
     pub name: String,
@@ -35,7 +36,8 @@ impl fmt::Debug for Sample {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Archive)]
+#[repr(C)]
 pub struct SampleHeader {
     pub reference_hash: String,
     pub mask_hash: String,

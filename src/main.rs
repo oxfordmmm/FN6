@@ -1,71 +1,141 @@
-use clap::Parser;
-use fn5::sample::{Sample, distance, parse_mask, parse_reference};
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+use fn5::sample::{parse_mask, parse_reference};
 use rayon::prelude::*;
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Path to the reference genome FASTA file
-    reference: String,
+    #[command(subcommand)]
+    command: Commands,
+}
+#[derive(Subcommand)]
+enum Commands {
+    /// Reference compress a sample genome. This will create a .fn5 file that can be used for fast comparisons with other samples. The .fn5 file is a binary file that contains the compressed representation of the sample genome, as well as metadata about the reference and mask used for compression.
+    ReferenceCompress {
+        /// Path to the reference genome FASTA file
+        reference: PathBuf,
 
-    /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
-    mask: String,
+        /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
+        mask: PathBuf,
 
-    /// Paths to the sample genome FASTA files
-    #[arg(long, required = true, num_args = 1..)]
-    samples: Vec<String>,
+        /// Path to the sample genome FASTA file
+        sample: PathBuf,
 
-    /// SNP threshold
-    #[arg(long, default_value_t = 20)]
-    cutoff: usize,
+        /// ID for this sample
+        #[arg(long)]
+        id: Option<String>,
+
+        /// Output path for the .fn5 file. If not provided, the .fn5 file will be saved in the same directory as the sample FASTA file with the same name but with a .fn5 extension.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Compute distances
+    Compute {
+        /// Paths to sample files. Either FASTA files or .fn5 files
+        #[arg(long, short, num_args = 1..)]
+        samples: Option<Vec<PathBuf>>,
+
+        /// Directory to load from.
+        #[arg(long, short)]
+        directory: Option<PathBuf>,
+
+        /// SNP threshold
+        #[arg(long, default_value_t = 20)]
+        cutoff: usize,
+    },
+
+    /// Reference compress a set of genomes. Dumber than `ReferenceCompress` as it doesn't allow for setting specific IDs or output paths, but much faster as it can be parallelized across samples.
+    BulkCompress {
+        /// Path to the reference genome FASTA file
+        reference: PathBuf,
+
+        /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
+        mask: PathBuf,
+
+        /// Path to the sample genome FASTA file
+        #[arg(long, required = true, num_args = 1..)]
+        samples: Vec<PathBuf>,
+    },
 }
 
 fn main() {
     let args = Args::parse();
-    let reference = parse_reference(args.reference.as_ref());
-    eprintln!("Got reference of length {}", reference.len());
-    let mut m = Vec::new();
-    let mask = parse_mask(args.mask.as_ref(), &mut m);
-    eprintln!("Got mask of length {}", mask.len());
 
-    let reference_hash = sha256::digest(args.reference.as_bytes());
-    let mask_hash = sha256::digest(args.mask.as_bytes());
+    match args.command {
+        Commands::ReferenceCompress {
+            reference,
+            mask,
+            sample,
+            id,
+            output,
+        } => {
+            let reference = parse_reference(reference.as_ref());
+            eprintln!("Got reference of length {}", reference.len());
+            let mut m = Vec::new();
+            let mask = parse_mask(mask.as_ref(), &mut m);
+            eprintln!("Got mask of length {}", mask.len());
 
-    let samples: Vec<Sample> = args
-        .samples
-        .par_iter()
-        .map(|sample_path| {
-            Sample::new(
-                sample_path.as_ref(),
-                reference.as_str(),
+            let reference_hash = sha256::digest(reference.as_bytes());
+            let mask_hash = sha256::digest(
+                mask.iter()
+                    .map(|x| x.to_string())
+                    .collect::<String>()
+                    .as_bytes(),
+            );
+            fn5::reference_compress(
+                &sample,
+                &reference,
                 mask,
                 &mask_hash,
                 &reference_hash,
-            )
-        })
-        .collect();
+                id,
+                output,
+            );
+        }
+        Commands::BulkCompress {
+            reference,
+            mask,
+            samples,
+        } => {
+            let reference = parse_reference(reference.as_ref());
+            eprintln!("Got reference of length {}", reference.len());
+            let mut m = Vec::new();
+            let mask = parse_mask(mask.as_ref(), &mut m);
+            eprintln!("Got mask of length {}", mask.len());
 
-    eprintln!(
-        "Got samples {:?}",
-        samples
-    );
-
-    let mut comparisons: Vec<(&Sample, &Sample)> = Vec::new();
-    for (idx1, sample1) in samples.iter().enumerate() {
-        for idx2 in idx1 + 1..samples.len() {
-            let sample2 = &samples[idx2];
-            comparisons.push((sample1, sample2));
+            let reference_hash = sha256::digest(reference.as_bytes());
+            let mask_hash = sha256::digest(
+                mask.iter()
+                    .map(|x| x.to_string())
+                    .collect::<String>()
+                    .as_bytes(),
+            );
+            let _ = samples
+                .par_iter()
+                .map(|sample| fn5::load_save(sample, &reference, mask, &mask_hash, &reference_hash))
+                .collect::<Vec<_>>();
+        }
+        Commands::Compute {
+            samples,
+            directory,
+            cutoff,
+        } => {
+            let mut sample_paths = Vec::new();
+            if let Some(samples) = samples {
+                sample_paths = samples;
+            }
+            if let Some(dir) = directory {
+                for entry in std::fs::read_dir(dir).unwrap() {
+                    let entry = entry.unwrap();
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("fn5") {
+                        sample_paths.push(path);
+                    }
+                }
+            }
+            fn5::compute(sample_paths, cutoff);
         }
     }
-    
-    let _ = comparisons.par_iter().map(|(sample1, sample2)| {
-        if sample1.name == sample2.name {
-            return;
-        }
-        let dist = distance(sample1, sample2, args.cutoff);
-        match dist {
-            Some(d) => println!("{} {} {}", sample1.name, sample2.name, d),
-            None => return,
-        }
-    }).collect::<Vec<()>>();
 }
