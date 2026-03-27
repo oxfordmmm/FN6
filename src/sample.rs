@@ -73,14 +73,12 @@ pub fn get_reader(filename: &str) -> Box<dyn BufRead> {
 pub fn parse_reference(filepath: &Path) -> String {
     let reader = get_reader(filepath.to_str().unwrap());
     let mut reference = String::new();
-    for line in reader.lines() {
-        if let Ok(ip) = line {
-            if !ip.is_empty() {
-                if ip.starts_with(">") || ip.starts_with(";") {
-                    continue;
-                }
-                reference.push_str(&ip.trim());
+    for line in reader.lines().map_while(Result::ok) {
+        if !line.is_empty() {
+            if line.starts_with(">") || line.starts_with(";") {
+                continue;
             }
+            reference.push_str(line.trim());
         }
     }
 
@@ -89,15 +87,13 @@ pub fn parse_reference(filepath: &Path) -> String {
 
 pub fn parse_mask<'a>(filepath: &'a Path, mask: &'a mut Vec<usize>) -> &'a [usize] {
     let reader = get_reader(filepath.to_str().unwrap());
-    for line in reader.lines() {
-        if let Ok(ip) = line {
-            if !ip.is_empty() {
-                mask.push(
-                    ip.trim()
-                        .parse::<usize>()
-                        .expect("Failed to parse mask value"),
-                );
-            }
+    for line in reader.lines().map_while(Result::ok) {
+        if !line.is_empty() {
+            mask.push(
+                line.trim()
+                    .parse::<usize>()
+                    .expect("Failed to parse mask value"),
+            );
         }
     }
 
@@ -121,39 +117,31 @@ impl Sample {
         let mut n = Vec::new();
 
         let mut char_counter = 0;
-        for line in reader.lines() {
-            if let Ok(ip) = line {
-                if !ip.is_empty() {
-                    if name.is_empty() && ip.starts_with(">") {
-                        name = ip
-                            .to_string()
-                            .split("|")
-                            .last()
-                            .unwrap()
-                            .trim()
-                            .replace(">", "");
-                        continue;
-                    } else if ip.starts_with(">") || ip.starts_with(";") {
-                        continue;
-                    } else {
-                        for ch in ip.chars() {
-                            if !(ch as u8 == reference.as_bytes()[char_counter]
-                                || mask.binary_search(&char_counter).is_ok())
-                            {
-                                match ch {
-                                    'a' => a.push(char_counter),
-                                    'A' => a.push(char_counter),
-                                    'c' => c.push(char_counter),
-                                    'C' => c.push(char_counter),
-                                    'g' => g.push(char_counter),
-                                    'G' => g.push(char_counter),
-                                    't' => t.push(char_counter),
-                                    'T' => t.push(char_counter),
-                                    _ => n.push(char_counter),
-                                }
+        for line in reader.lines().map_while(Result::ok) {
+            if !line.is_empty() {
+                if name.is_empty() && line.starts_with(">") {
+                    name = line.split("|").last().unwrap().trim().replace(">", "");
+                    continue;
+                } else if line.starts_with(">") || line.starts_with(";") {
+                    continue;
+                } else {
+                    for ch in line.chars() {
+                        if !(ch as u8 == reference.as_bytes()[char_counter]
+                            || mask.binary_search(&char_counter).is_ok())
+                        {
+                            match ch {
+                                'a' => a.push(char_counter),
+                                'A' => a.push(char_counter),
+                                'c' => c.push(char_counter),
+                                'C' => c.push(char_counter),
+                                'g' => g.push(char_counter),
+                                'G' => g.push(char_counter),
+                                't' => t.push(char_counter),
+                                'T' => t.push(char_counter),
+                                _ => n.push(char_counter),
                             }
-                            char_counter += 1;
                         }
+                        char_counter += 1;
                     }
                 }
             }
@@ -236,9 +224,9 @@ pub fn dist(
         if distance > cutoff {
             return distance;
         }
-        if sample_x.binary_search(&elem).is_err() {
+        if sample_x.binary_search(elem).is_err() {
             // Not in sample
-            if sample_n.binary_search(&elem).is_err() {
+            if sample_n.binary_search(elem).is_err() {
                 // Not an n either
                 distance += 1;
             }
@@ -248,9 +236,9 @@ pub fn dist(
         if distance > cutoff {
             return distance;
         }
-        if this_x.binary_search(&elem).is_err() {
+        if this_x.binary_search(elem).is_err() {
             // Not in sample
-            if this_n.binary_search(&elem).is_err() {
+            if this_n.binary_search(elem).is_err() {
                 // Not an n either
                 distance += 1;
             }

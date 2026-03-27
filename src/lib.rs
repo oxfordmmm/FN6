@@ -61,9 +61,8 @@ pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
 
     // Figure out what comparisons we need to do
     let mut comparisons: Vec<(&sample::Sample, &sample::Sample)> = Vec::new();
-    for (idx1, sample1) in samples.iter().enumerate() {
-        for idx2 in idx1 + 1..samples.len() {
-            let sample2 = &samples[idx2];
+    for (idx, sample1) in samples.iter().enumerate() {
+        for sample2 in samples.iter().skip(idx + 1) {
             comparisons.push((sample1, sample2));
         }
     }
@@ -77,18 +76,15 @@ pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
                 return;
             }
             let dist = sample::distance(sample1, sample2, cutoff);
-            match dist {
-                Some(d) => {
-                    let mut dist_lock = distances.lock().unwrap();
-                    dist_lock.push((sample1.name.clone(), sample2.name.clone(), d));
-                    if dist_lock.len() == 1000 {
-                        for (name1, name2, d) in dist_lock.iter() {
-                            println!("{} {} {}", name1, name2, d);
-                        }
-                        dist_lock.clear();
+            if let Some(d) = dist {
+                let mut dist_lock = distances.lock().unwrap();
+                dist_lock.push((sample1.name.clone(), sample2.name.clone(), d));
+                if dist_lock.len() == 1000 {
+                    for (name1, name2, d) in dist_lock.iter() {
+                        println!("{} {} {}", name1, name2, d);
                     }
+                    dist_lock.clear();
                 }
-                None => return,
             }
         })
         .collect::<Vec<()>>();
