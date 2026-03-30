@@ -1,5 +1,6 @@
 use std::{
-    path::{Path, PathBuf}, sync::Mutex
+    path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 use crate::sample::ArchivedSample;
@@ -22,7 +23,6 @@ pub fn load_save(
     }
     sample::Sample::new(filepath, reference, mask, mask_hash, reference_hash)
 }
-
 
 pub fn reference_compress(
     filepath: &Path,
@@ -57,11 +57,8 @@ pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
     // Load the saves
     let samples: Vec<Vec<u8>> = filepaths
         .par_iter()
-        .map(|sample_path| {
-            std::fs::read(sample_path).unwrap()
-        })
+        .map(|sample_path| std::fs::read(sample_path).unwrap())
         .collect();
-
 
     // Figure out what comparisons we need to do
     let mut comparisons: Vec<(&Vec<u8>, &Vec<u8>)> = Vec::new();

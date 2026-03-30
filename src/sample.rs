@@ -44,7 +44,6 @@ impl fmt::Debug for Sample {
     }
 }
 
-
 /// Read normal or compressed files seamlessly
 /// Uses the presence of a `gz` extension to choose between the two
 /// https://users.rust-lang.org/t/write-to-normal-or-gzip-file-transparently/35561
@@ -124,13 +123,24 @@ impl Sample {
                 if name.is_empty() && line.starts_with(">") {
                     // This is a bit hacky but allows for some variation in the header format
                     // `>chr1|chr1.fa`, `>chr1 description` and `>chr1` will all work, and the sample name will be `chr1` in both cases
-                    name = line.split_whitespace().collect::<Vec<&str>>().first().unwrap().split("|").last().unwrap().trim().replace(">", "");
+                    name = line
+                        .split_whitespace()
+                        .collect::<Vec<&str>>()
+                        .first()
+                        .unwrap()
+                        .split("|")
+                        .last()
+                        .unwrap()
+                        .trim()
+                        .replace(">", "");
                     continue;
                 } else if line.starts_with(">") || line.starts_with(";") {
                     continue;
                 } else {
                     for ch in line.chars() {
-                        if !(ch as u8 == reference.as_bytes()[char_counter] || mask.binary_search(&char_counter).is_ok()) {
+                        if !(ch as u8 == reference.as_bytes()[char_counter]
+                            || mask.binary_search(&char_counter).is_ok())
+                        {
                             match ch {
                                 'A' | 'a' => a.push(char_counter),
                                 'C' | 'c' => c.push(char_counter),
@@ -178,10 +188,16 @@ pub fn distance(sample1: &Sample, sample2: &Sample, cutoff: usize) -> Option<usi
         return None;
     }
     if sample1.header.mask_hash != sample2.header.mask_hash {
-        panic!("Cannot compare {} and {} because of different masks", sample1.name, sample2.name);
+        panic!(
+            "Cannot compare {} and {} because of different masks",
+            sample1.name, sample2.name
+        );
     }
     if sample1.header.reference_hash != sample2.header.reference_hash {
-        panic!("Cannot compare {} and {} because of different references", sample1.name, sample2.name);
+        panic!(
+            "Cannot compare {} and {} because of different references",
+            sample1.name, sample2.name
+        );
     }
     let mut distances = HashSet::new();
     dist(
@@ -223,7 +239,11 @@ pub fn distance(sample1: &Sample, sample2: &Sample, cutoff: usize) -> Option<usi
     Some(distances.len())
 }
 
-pub fn arch_distance(sample1: &ArchivedSample, sample2: &ArchivedSample, cutoff: usize) -> Option<usize> {
+pub fn arch_distance(
+    sample1: &ArchivedSample,
+    sample2: &ArchivedSample,
+    cutoff: usize,
+) -> Option<usize> {
     if !sample1.is_qc_passed || !sample2.is_qc_passed {
         eprintln!(
             "Neglecting {} and {} because of QC failure",
@@ -232,10 +252,16 @@ pub fn arch_distance(sample1: &ArchivedSample, sample2: &ArchivedSample, cutoff:
         return None;
     }
     if sample1.header.mask_hash != sample2.header.mask_hash {
-        panic!("Cannot compare {} and {} because of different masks", sample1.name, sample2.name);
+        panic!(
+            "Cannot compare {} and {} because of different masks",
+            sample1.name, sample2.name
+        );
     }
     if sample1.header.reference_hash != sample2.header.reference_hash {
-        panic!("Cannot compare {} and {} because of different references", sample1.name, sample2.name);
+        panic!(
+            "Cannot compare {} and {} because of different references",
+            sample1.name, sample2.name
+        );
     }
     let mut distances = HashSet::new();
     dist(
@@ -276,8 +302,6 @@ pub fn arch_distance(sample1: &ArchivedSample, sample2: &ArchivedSample, cutoff:
 
     Some(distances.len())
 }
-
-
 
 pub fn dist<T: std::cmp::Ord + std::hash::Hash + Copy>(
     this_x: &[T],
@@ -311,5 +335,4 @@ pub fn dist<T: std::cmp::Ord + std::hash::Hash + Copy>(
             }
         }
     }
-
 }

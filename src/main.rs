@@ -135,7 +135,17 @@ fn main() {
             eprintln!("Got {} samples to compress", sample_paths.len());
             let _ = sample_paths
                 .par_iter()
-                .map(|sample| fn5::reference_compress(sample, &reference, mask, &mask_hash, &reference_hash, None, None))
+                .map(|sample| {
+                    fn5::reference_compress(
+                        sample,
+                        &reference,
+                        mask,
+                        &mask_hash,
+                        &reference_hash,
+                        None,
+                        None,
+                    )
+                })
                 .collect::<Vec<_>>();
         }
         Commands::Compute {
@@ -147,7 +157,10 @@ fn main() {
             // Possibly mask related?
             let mut sample_paths = Vec::new();
             if let Some(samples) = samples {
-                sample_paths = samples.into_iter().filter(|p| p.extension().and_then(|s| s.to_str()) == Some("fn5")).collect();
+                sample_paths = samples
+                    .into_iter()
+                    .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("fn5"))
+                    .collect();
             }
             if let Some(dir) = directory {
                 for entry in std::fs::read_dir(dir).unwrap() {
