@@ -78,8 +78,7 @@ fn main() {
         } => {
             let reference = parse_reference(reference.as_ref());
             eprintln!("Got reference of length {}", reference.len());
-            let mut m = Vec::new();
-            let mask = parse_mask(mask.as_ref(), &mut m);
+            let mask = parse_mask(&mask);
             eprintln!("Got mask of length {}", mask.len());
 
             let reference_hash = sha256::digest(reference.as_bytes());
@@ -92,7 +91,7 @@ fn main() {
             fn6::reference_compress(
                 &sample,
                 &reference,
-                mask,
+                &mask,
                 &mask_hash,
                 &reference_hash,
                 id,
@@ -107,8 +106,7 @@ fn main() {
         } => {
             let reference = parse_reference(reference.as_ref());
             eprintln!("Got reference of length {}", reference.len());
-            let mut m = Vec::new();
-            let mask = parse_mask(mask.as_ref(), &mut m);
+            let mask = parse_mask(&mask);
             eprintln!("Got mask of length {}", mask.len());
 
             let reference_hash = sha256::digest(reference.as_bytes());
@@ -142,7 +140,7 @@ fn main() {
                     fn6::reference_compress(
                         sample,
                         &reference,
-                        mask,
+                        &mask,
                         &mask_hash,
                         &reference_hash,
                         None,

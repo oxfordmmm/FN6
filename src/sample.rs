@@ -86,8 +86,9 @@ pub fn parse_reference(filepath: &Path) -> String {
     reference
 }
 
-pub fn parse_mask<'a>(filepath: &'a Path, mask: &'a mut Vec<usize>) -> &'a [usize] {
+pub fn parse_mask(filepath: &Path) -> Vec<usize> {
     let reader = get_reader(filepath.to_str().unwrap());
+    let mut mask = Vec::new();
     for line in reader.lines().map_while(Result::ok) {
         if !line.is_empty() {
             mask.push(
