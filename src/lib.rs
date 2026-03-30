@@ -81,8 +81,8 @@ pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
     let _ = comparisons
         .par_iter()
         .map(|(sample1, sample2)| {
-            let sample1 = unsafe { rkyv::access_unchecked::<ArchivedSample>(&sample1[..]) };
-            let sample2 = unsafe { rkyv::access_unchecked::<ArchivedSample>(&sample2[..]) };
+            let sample1 = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&sample1[..]).unwrap();
+            let sample2 = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&sample2[..]).unwrap();
             if sample1.name == sample2.name {
                 return;
             }
