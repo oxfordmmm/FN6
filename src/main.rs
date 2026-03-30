@@ -31,6 +31,7 @@ enum Commands {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+
     /// Compute distances
     Compute {
         /// Paths to sample files. Either FASTA files or .fn5 files
@@ -54,9 +55,13 @@ enum Commands {
         /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
         mask: PathBuf,
 
-        /// Path to the sample genome FASTA file
-        #[arg(long, required = true, num_args = 1..)]
-        samples: Vec<PathBuf>,
+        /// Paths to sample files. Either FASTA files or .fn5 files
+        #[arg(long, short, num_args = 1..)]
+        samples: Option<Vec<PathBuf>>,
+
+        /// Directory to load from.
+        #[arg(long, short)]
+        directory: Option<PathBuf>,
     },
 }
 
@@ -98,6 +103,7 @@ fn main() {
             reference,
             mask,
             samples,
+            directory,
         } => {
             let reference = parse_reference(reference.as_ref());
             eprintln!("Got reference of length {}", reference.len());
@@ -112,9 +118,24 @@ fn main() {
                     .collect::<String>()
                     .as_bytes(),
             );
-            let _ = samples
+
+            let mut sample_paths = Vec::new();
+            if let Some(samples) = samples {
+                sample_paths = samples;
+            }
+            if let Some(dir) = directory {
+                for entry in std::fs::read_dir(dir).unwrap() {
+                    let entry = entry.unwrap();
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("fasta") {
+                        sample_paths.push(path);
+                    }
+                }
+            }
+            eprintln!("Got {} samples to compress", sample_paths.len());
+            let _ = sample_paths
                 .par_iter()
-                .map(|sample| fn5::load_save(sample, &reference, mask, &mask_hash, &reference_hash))
+                .map(|sample| fn5::reference_compress(sample, &reference, mask, &mask_hash, &reference_hash, None, None))
                 .collect::<Vec<_>>();
         }
         Commands::Compute {
@@ -122,9 +143,11 @@ fn main() {
             directory,
             cutoff,
         } => {
+            // TODO: Fix the issue which is causing this to sometimes give +1 to SNPs
+            // Possibly mask related?
             let mut sample_paths = Vec::new();
             if let Some(samples) = samples {
-                sample_paths = samples;
+                sample_paths = samples.into_iter().filter(|p| p.extension().and_then(|s| s.to_str()) == Some("fn5")).collect();
             }
             if let Some(dir) = directory {
                 for entry in std::fs::read_dir(dir).unwrap() {

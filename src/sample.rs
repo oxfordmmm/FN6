@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -8,6 +9,13 @@ use flate2::read::MultiGzDecoder;
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+#[derive(Debug, Serialize, Deserialize, Archive)]
+#[repr(C)]
+pub struct SampleHeader {
+    pub reference_hash: String,
+    pub mask_hash: String,
+    pub version: String,
+}
 #[derive(Serialize, Deserialize, Archive)]
 #[repr(C)]
 pub struct Sample {
@@ -36,13 +44,6 @@ impl fmt::Debug for Sample {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Archive)]
-#[repr(C)]
-pub struct SampleHeader {
-    pub reference_hash: String,
-    pub mask_hash: String,
-    pub version: String,
-}
 
 /// Read normal or compressed files seamlessly
 /// Uses the presence of a `gz` extension to choose between the two
@@ -96,6 +97,7 @@ pub fn parse_mask<'a>(filepath: &'a Path, mask: &'a mut Vec<usize>) -> &'a [usiz
             );
         }
     }
+    mask.sort();
 
     mask
 }
@@ -120,24 +122,20 @@ impl Sample {
         for line in reader.lines().map_while(Result::ok) {
             if !line.is_empty() {
                 if name.is_empty() && line.starts_with(">") {
-                    name = line.split("|").last().unwrap().trim().replace(">", "");
+                    // This is a bit hacky but allows for some variation in the header format
+                    // `>chr1|chr1.fa`, `>chr1 description` and `>chr1` will all work, and the sample name will be `chr1` in both cases
+                    name = line.split_whitespace().collect::<Vec<&str>>().first().unwrap().split("|").last().unwrap().trim().replace(">", "");
                     continue;
                 } else if line.starts_with(">") || line.starts_with(";") {
                     continue;
                 } else {
                     for ch in line.chars() {
-                        if !(ch as u8 == reference.as_bytes()[char_counter]
-                            || mask.binary_search(&char_counter).is_ok())
-                        {
+                        if !(ch as u8 == reference.as_bytes()[char_counter] || mask.binary_search(&char_counter).is_ok()) {
                             match ch {
-                                'a' => a.push(char_counter),
-                                'A' => a.push(char_counter),
-                                'c' => c.push(char_counter),
-                                'C' => c.push(char_counter),
-                                'g' => g.push(char_counter),
-                                'G' => g.push(char_counter),
-                                't' => t.push(char_counter),
-                                'T' => t.push(char_counter),
+                                'A' | 'a' => a.push(char_counter),
+                                'C' | 'c' => c.push(char_counter),
+                                'G' | 'g' => g.push(char_counter),
+                                'T' | 't' => t.push(char_counter),
                                 _ => n.push(char_counter),
                             }
                         }
@@ -146,7 +144,6 @@ impl Sample {
                 }
             }
         }
-
         a.sort_unstable();
         c.sort_unstable();
         g.sort_unstable();
@@ -180,69 +177,139 @@ pub fn distance(sample1: &Sample, sample2: &Sample, cutoff: usize) -> Option<usi
         );
         return None;
     }
-    let distance = dist(
-        sample1.a.clone(),
-        sample1.n.clone(),
-        sample2.a.clone(),
-        sample2.n.clone(),
+    if sample1.header.mask_hash != sample2.header.mask_hash {
+        panic!("Cannot compare {} and {} because of different masks", sample1.name, sample2.name);
+    }
+    if sample1.header.reference_hash != sample2.header.reference_hash {
+        panic!("Cannot compare {} and {} because of different references", sample1.name, sample2.name);
+    }
+    let mut distances = HashSet::new();
+    dist(
+        &sample1.a,
+        &sample1.n,
+        &sample2.a,
+        &sample2.n,
         cutoff,
-    ) + dist(
-        sample1.c.clone(),
-        sample1.n.clone(),
-        sample2.c.clone(),
-        sample2.n.clone(),
-        cutoff,
-    ) + dist(
-        sample1.t.clone(),
-        sample1.n.clone(),
-        sample2.t.clone(),
-        sample2.n.clone(),
-        cutoff,
-    ) + dist(
-        sample1.g.clone(),
-        sample1.n.clone(),
-        sample2.g.clone(),
-        sample2.n.clone(),
-        cutoff,
+        &mut distances,
     );
-    if distance > cutoff {
+    dist(
+        &sample1.c,
+        &sample1.n,
+        &sample2.c,
+        &sample2.n,
+        cutoff,
+        &mut distances,
+    );
+    dist(
+        &sample1.t,
+        &sample1.n,
+        &sample2.t,
+        &sample2.n,
+        cutoff,
+        &mut distances,
+    );
+    dist(
+        &sample1.g,
+        &sample1.n,
+        &sample2.g,
+        &sample2.n,
+        cutoff,
+        &mut distances,
+    );
+    if distances.len() > cutoff {
         return None;
     }
 
-    Some(distance)
+    Some(distances.len())
 }
 
-pub fn dist(
-    this_x: Vec<usize>,
-    this_n: Vec<usize>,
-    sample_x: Vec<usize>,
-    sample_n: Vec<usize>,
+pub fn arch_distance(sample1: &ArchivedSample, sample2: &ArchivedSample, cutoff: usize) -> Option<usize> {
+    if !sample1.is_qc_passed || !sample2.is_qc_passed {
+        eprintln!(
+            "Neglecting {} and {} because of QC failure",
+            sample1.name, sample2.name
+        );
+        return None;
+    }
+    if sample1.header.mask_hash != sample2.header.mask_hash {
+        panic!("Cannot compare {} and {} because of different masks", sample1.name, sample2.name);
+    }
+    if sample1.header.reference_hash != sample2.header.reference_hash {
+        panic!("Cannot compare {} and {} because of different references", sample1.name, sample2.name);
+    }
+    let mut distances = HashSet::new();
+    dist(
+        &sample1.a,
+        &sample1.n,
+        &sample2.a,
+        &sample2.n,
+        cutoff,
+        &mut distances,
+    );
+    dist(
+        &sample1.c,
+        &sample1.n,
+        &sample2.c,
+        &sample2.n,
+        cutoff,
+        &mut distances,
+    );
+    dist(
+        &sample1.t,
+        &sample1.n,
+        &sample2.t,
+        &sample2.n,
+        cutoff,
+        &mut distances,
+    );
+    dist(
+        &sample1.g,
+        &sample1.n,
+        &sample2.g,
+        &sample2.n,
+        cutoff,
+        &mut distances,
+    );
+    if distances.len() > cutoff {
+        return None;
+    }
+
+    Some(distances.len())
+}
+
+
+
+pub fn dist<T: std::cmp::Ord + std::hash::Hash + Copy>(
+    this_x: &[T],
+    this_n: &[T],
+    sample_x: &[T],
+    sample_n: &[T],
     cutoff: usize,
-) -> usize {
-    let mut distance = 0;
+    distances: &mut HashSet<T>,
+) {
     for elem in this_x.iter() {
-        if distance > cutoff {
-            return distance;
+        if distances.len() > cutoff {
+            return;
         }
         if sample_x.binary_search(elem).is_err() {
             // Not in sample
             if sample_n.binary_search(elem).is_err() {
                 // Not an n either
-                distance += 1;
+                distances.insert(*elem);
             }
         }
     }
     for elem in sample_x.iter() {
-        if distance > cutoff {
-            return distance;
+        if distances.len() > cutoff {
+            return;
         }
         if this_x.binary_search(elem).is_err() {
             // Not in sample
             if this_n.binary_search(elem).is_err() {
                 // Not an n either
-                distance += 1;
+                distances.insert(*elem);
             }
         }
     }
-    distance
+
 }

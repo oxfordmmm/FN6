@@ -3,3 +3,5 @@
 *.fasta
 *.txt
 *.fn5
+*.tar.gz
+massif.out*

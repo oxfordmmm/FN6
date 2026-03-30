@@ -1,6 +1,5 @@
 use std::{
-    path::{Path, PathBuf},
-    sync::Mutex,
+    path::{Path, PathBuf}, sync::Mutex
 };
 
 use crate::sample::ArchivedSample;
@@ -18,11 +17,12 @@ pub fn load_save(
 ) -> sample::Sample {
     if filepath.to_str().unwrap().to_owned().ends_with(".fn5") {
         let bytes = std::fs::read(filepath).unwrap();
-        let arch_sample = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&bytes[..]).unwrap();
+        let arch_sample = unsafe { rkyv::access_unchecked::<ArchivedSample>(&bytes[..]) };
         return rkyv::deserialize::<sample::Sample, rkyv::rancor::Error>(arch_sample).unwrap();
     }
     sample::Sample::new(filepath, reference, mask, mask_hash, reference_hash)
 }
+
 
 pub fn reference_compress(
     filepath: &Path,
@@ -45,22 +45,26 @@ pub fn reference_compress(
             path
         }
     };
-
-    let serialized = rkyv::to_bytes::<rkyv::rancor::Error>(&s).unwrap();
-    std::fs::write(output, serialized).unwrap();
+    if s.is_qc_passed {
+        let serialized = rkyv::to_bytes::<rkyv::rancor::Error>(&s).unwrap();
+        std::fs::write(output, serialized).unwrap();
+    }
 
     s
 }
 
 pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
     // Load the saves
-    let samples: Vec<sample::Sample> = filepaths
+    let samples: Vec<Vec<u8>> = filepaths
         .par_iter()
-        .map(|sample_path| load_save(sample_path.as_ref(), "", &[], "", ""))
+        .map(|sample_path| {
+            std::fs::read(sample_path).unwrap()
+        })
         .collect();
 
+
     // Figure out what comparisons we need to do
-    let mut comparisons: Vec<(&sample::Sample, &sample::Sample)> = Vec::new();
+    let mut comparisons: Vec<(&Vec<u8>, &Vec<u8>)> = Vec::new();
     for (idx, sample1) in samples.iter().enumerate() {
         for sample2 in samples.iter().skip(idx + 1) {
             comparisons.push((sample1, sample2));
@@ -72,13 +76,15 @@ pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
     let _ = comparisons
         .par_iter()
         .map(|(sample1, sample2)| {
+            let sample1 = unsafe { rkyv::access_unchecked::<ArchivedSample>(&sample1[..]) };
+            let sample2 = unsafe { rkyv::access_unchecked::<ArchivedSample>(&sample2[..]) };
             if sample1.name == sample2.name {
                 return;
             }
-            let dist = sample::distance(sample1, sample2, cutoff);
+            let dist = sample::arch_distance(sample1, sample2, cutoff);
             if let Some(d) = dist {
                 let mut dist_lock = distances.lock().unwrap();
-                dist_lock.push((sample1.name.clone(), sample2.name.clone(), d));
+                dist_lock.push((sample1.name.to_string(), sample2.name.to_string(), d));
                 if dist_lock.len() == 1000 {
                     for (name1, name2, d) in dist_lock.iter() {
                         println!("{} {} {}", name1, name2, d);
