@@ -22,6 +22,7 @@ pub struct Sample {
     pub header: SampleHeader,
     pub name: String,
     pub is_qc_passed: bool,
+    pub is_fn5: bool,
     pub a: Vec<usize>,
     pub c: Vec<usize>,
     pub t: Vec<usize>,
@@ -170,6 +171,7 @@ impl Sample {
             },
             name,
             is_qc_passed: (n.len() as f64 / reference.len() as f64) < 0.2,
+            is_fn5: false,
             a,
             c,
             g,
@@ -177,6 +179,48 @@ impl Sample {
             n,
         }
     }
+}
+
+pub fn from_fn5(filepath: &Path) -> Vec<u8> {
+    let name = filepath.file_stem().unwrap().to_str().unwrap().to_string();
+    let mut results = [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    // Read full file into RAM before trying to do anything
+    let bytes = std::fs::read(filepath).unwrap();
+    if !bytes.len().is_multiple_of(4) {
+        panic!("File {} is not in the correct format", filepath.display());
+    }
+
+    let mut idx: i32 = -1;
+    let mut chunks_to_read = 0;
+    for chunk in bytes.chunks(4) {
+        let val = i32::from_le_bytes(chunk.try_into().unwrap());
+        if chunks_to_read == 0 {
+            chunks_to_read = val;
+            idx += 1;
+        } else {
+            results[idx as usize].push(val as usize);
+            chunks_to_read -= 1;
+        }
+    }
+
+    let sample = Sample {
+        header: SampleHeader {
+            reference_hash: String::new(),
+            mask_hash: String::new(),
+            version: String::new(),
+        },
+        name,
+        is_qc_passed: true,
+        is_fn5: true,
+        a: results[0].clone(),
+        c: results[1].clone(),
+        g: results[2].clone(),
+        t: results[3].clone(),
+        n: results[4].clone(),
+    };
+    rkyv::to_bytes::<rkyv::rancor::Error>(&sample)
+        .unwrap()
+        .to_vec()
 }
 
 pub fn distance(sample1: &Sample, sample2: &Sample, cutoff: usize) -> Option<usize> {
@@ -187,17 +231,29 @@ pub fn distance(sample1: &Sample, sample2: &Sample, cutoff: usize) -> Option<usi
         );
         return None;
     }
-    if sample1.header.mask_hash != sample2.header.mask_hash {
-        panic!(
-            "Cannot compare {} and {} because of different masks",
-            sample1.name, sample2.name
-        );
-    }
-    if sample1.header.reference_hash != sample2.header.reference_hash {
-        panic!(
-            "Cannot compare {} and {} because of different references",
-            sample1.name, sample2.name
-        );
+    // Be flexible with whether a sample requires a header
+    // This is to enable comparison of samples from FN5 which don't have a header
+    if !sample1.is_fn5 && !sample2.is_fn5 {
+        let header1 = &sample1.header;
+        let header2 = &sample2.header;
+        if header1.mask_hash != header2.mask_hash {
+            panic!(
+                "Cannot compare {} and {} because of different masks",
+                sample1.name, sample2.name
+            );
+        }
+        if header1.reference_hash != header2.reference_hash {
+            panic!(
+                "Cannot compare {} and {} because of different references",
+                sample1.name, sample2.name
+            );
+        }
+        if header1.version != header2.version {
+            panic!(
+                "Cannot compare {} and {} because of different versions",
+                sample1.name, sample2.name
+            );
+        }
     }
     let mut distances = HashSet::new();
     dist(
@@ -251,17 +307,29 @@ pub fn arch_distance(
         );
         return None;
     }
-    if sample1.header.mask_hash != sample2.header.mask_hash {
-        panic!(
-            "Cannot compare {} and {} because of different masks",
-            sample1.name, sample2.name
-        );
-    }
-    if sample1.header.reference_hash != sample2.header.reference_hash {
-        panic!(
-            "Cannot compare {} and {} because of different references",
-            sample1.name, sample2.name
-        );
+    // Be flexible with whether a sample requires a header
+    // This is to enable comparison of samples from FN5 which don't have a header
+    if !sample1.is_fn5 && !sample2.is_fn5 {
+        let header1 = &sample1.header;
+        let header2 = &sample2.header;
+        if header1.mask_hash != header2.mask_hash {
+            panic!(
+                "Cannot compare {} and {} because of different masks",
+                sample1.name, sample2.name
+            );
+        }
+        if header1.reference_hash != header2.reference_hash {
+            panic!(
+                "Cannot compare {} and {} because of different references",
+                sample1.name, sample2.name
+            );
+        }
+        if header1.version != header2.version {
+            panic!(
+                "Cannot compare {} and {} because of different versions",
+                sample1.name, sample2.name
+            );
+        }
     }
     let mut distances = HashSet::new();
     dist(

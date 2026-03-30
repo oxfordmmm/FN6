@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use fn5::sample::{parse_mask, parse_reference};
+use fn6::sample::{parse_mask, parse_reference};
 use rayon::prelude::*;
 
 #[derive(Parser)]
@@ -12,7 +12,7 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Commands {
-    /// Reference compress a sample genome. This will create a .fn5 file that can be used for fast comparisons with other samples. The .fn5 file is a binary file that contains the compressed representation of the sample genome, as well as metadata about the reference and mask used for compression.
+    /// Reference compress a sample genome. This will create a .fn6 file that can be used for fast comparisons with other samples. The .fn6 file is a binary file that contains the compressed representation of the sample genome, as well as metadata about the reference and mask used for compression.
     ReferenceCompress {
         /// Path to the reference genome FASTA file
         reference: PathBuf,
@@ -27,14 +27,14 @@ enum Commands {
         #[arg(long)]
         id: Option<String>,
 
-        /// Output path for the .fn5 file. If not provided, the .fn5 file will be saved in the same directory as the sample FASTA file with the same name but with a .fn5 extension.
+        /// Output path for the .fn6 file. If not provided, the .fn6 file will be saved in the same directory as the sample FASTA file with the same name but with a .fn6 extension.
         #[arg(long)]
         output: Option<PathBuf>,
     },
 
     /// Compute distances
     Compute {
-        /// Paths to sample files. Either FASTA files or .fn5 files
+        /// Paths to sample files. Either FASTA files or .fn6 files
         #[arg(long, short, num_args = 1..)]
         samples: Option<Vec<PathBuf>>,
 
@@ -55,7 +55,7 @@ enum Commands {
         /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
         mask: PathBuf,
 
-        /// Paths to sample files. Either FASTA files or .fn5 files
+        /// Paths to sample files. Either FASTA files or .fn6 files
         #[arg(long, short, num_args = 1..)]
         samples: Option<Vec<PathBuf>>,
 
@@ -89,7 +89,7 @@ fn main() {
                     .collect::<String>()
                     .as_bytes(),
             );
-            fn5::reference_compress(
+            fn6::reference_compress(
                 &sample,
                 &reference,
                 mask,
@@ -127,7 +127,10 @@ fn main() {
                 for entry in std::fs::read_dir(dir).unwrap() {
                     let entry = entry.unwrap();
                     let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("fasta") {
+                    if path.extension().and_then(|s| s.to_str()) == Some("fasta")
+                        || path.extension().and_then(|s| s.to_str()) == Some("fna")
+                        || path.extension().and_then(|s| s.to_str()) == Some("fa")
+                    {
                         sample_paths.push(path);
                     }
                 }
@@ -136,7 +139,7 @@ fn main() {
             let _ = sample_paths
                 .par_iter()
                 .map(|sample| {
-                    fn5::reference_compress(
+                    fn6::reference_compress(
                         sample,
                         &reference,
                         mask,
@@ -153,25 +156,28 @@ fn main() {
             directory,
             cutoff,
         } => {
-            // TODO: Fix the issue which is causing this to sometimes give +1 to SNPs
-            // Possibly mask related?
             let mut sample_paths = Vec::new();
             if let Some(samples) = samples {
                 sample_paths = samples
                     .into_iter()
-                    .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("fn5"))
+                    .filter(|p| {
+                        p.extension().and_then(|s| s.to_str()) == Some("fn6")
+                            || p.extension().and_then(|s| s.to_str()) == Some("fn5")
+                    })
                     .collect();
             }
             if let Some(dir) = directory {
                 for entry in std::fs::read_dir(dir).unwrap() {
                     let entry = entry.unwrap();
                     let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("fn5") {
+                    if path.extension().and_then(|s| s.to_str()) == Some("fn6")
+                        || path.extension().and_then(|s| s.to_str()) == Some("fn5")
+                    {
                         sample_paths.push(path);
                     }
                 }
             }
-            fn5::compute(sample_paths, cutoff);
+            fn6::compute(sample_paths, cutoff);
         }
     }
 }

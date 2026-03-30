@@ -2,6 +2,6 @@
 
 *.fasta
 *.txt
-*.fn5
+*.fn6
 *.tar.gz
 massif.out*

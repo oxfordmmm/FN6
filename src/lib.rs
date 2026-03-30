@@ -16,7 +16,7 @@ pub fn load_save(
     mask_hash: &str,
     reference_hash: &str,
 ) -> sample::Sample {
-    if filepath.to_str().unwrap().to_owned().ends_with(".fn5") {
+    if filepath.to_str().unwrap().to_owned().ends_with(".fn6") {
         let bytes = std::fs::read(filepath).unwrap();
         let arch_sample = unsafe { rkyv::access_unchecked::<ArchivedSample>(&bytes[..]) };
         return rkyv::deserialize::<sample::Sample, rkyv::rancor::Error>(arch_sample).unwrap();
@@ -41,7 +41,7 @@ pub fn reference_compress(
         Some(path) => path,
         None => {
             let mut path = filepath.to_path_buf();
-            path.set_extension("fn5");
+            path.set_extension("fn6");
             path
         }
     };
@@ -57,7 +57,15 @@ pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
     // Load the saves
     let samples: Vec<Vec<u8>> = filepaths
         .par_iter()
-        .map(|sample_path| std::fs::read(sample_path).unwrap())
+        .map(|sample_path| {
+            if sample_path.extension().and_then(|s| s.to_str()) == Some("fn6") {
+                std::fs::read(sample_path).unwrap()
+            } else if sample_path.extension().and_then(|s| s.to_str()) == Some("fn5") {
+                sample::from_fn5(sample_path)
+            } else {
+                panic!("Unsupported file type: {:?}", sample_path);
+            }
+        })
         .collect();
 
     // Figure out what comparisons we need to do
