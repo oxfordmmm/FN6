@@ -34,13 +34,36 @@ enum Commands {
 
     /// Compute distances
     Compute {
-        /// Paths to sample files. Either FASTA files or .fn6 files
+        /// Paths to sample files. Either .fn6 or .fn5 files
         #[arg(long, short, num_args = 1..)]
         samples: Option<Vec<PathBuf>>,
 
         /// Directory to load from.
         #[arg(long, short)]
         directory: Option<PathBuf>,
+
+        /// SNP threshold
+        #[arg(long, default_value_t = 20)]
+        cutoff: usize,
+    },
+
+    /// Compute distances
+    AddSamples {
+        /// Paths to existing sample files. Either .fn6 or .fn5 files
+        #[arg(long, short = 's', num_args = 1..)]
+        existing_samples: Option<Vec<PathBuf>>,
+
+        /// Directory to load existing saves from.
+        #[arg(long, short = 'd')]
+        existing_directory: Option<PathBuf>,
+
+        /// Paths to sample files to add. Either .fn6 or .fn5 files
+        #[arg(long, short = 'S', num_args = 1..)]
+        new_samples: Option<Vec<PathBuf>>,
+
+        /// Directory to load new saves from.
+        #[arg(long, short = 'D')]
+        new_directory: Option<PathBuf>,
 
         /// SNP threshold
         #[arg(long, default_value_t = 20)]
@@ -176,6 +199,64 @@ fn main() {
                 }
             }
             fn6::compute(sample_paths, cutoff);
+        }
+        Commands::AddSamples {
+            existing_samples,
+            existing_directory,
+            new_samples,
+            new_directory,
+            cutoff,
+        } => {
+            let mut existing_sample_paths = Vec::new();
+            if let Some(samples) = existing_samples {
+                existing_sample_paths = samples
+                    .into_iter()
+                    .filter(|p| {
+                        p.extension().and_then(|s| s.to_str()) == Some("fn6")
+                            || p.extension().and_then(|s| s.to_str()) == Some("fn5")
+                    })
+                    .collect();
+            }
+            if let Some(dir) = existing_directory {
+                for entry in std::fs::read_dir(dir).unwrap() {
+                    let entry = entry.unwrap();
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("fn6")
+                        || path.extension().and_then(|s| s.to_str()) == Some("fn5")
+                    {
+                        existing_sample_paths.push(path);
+                    }
+                }
+            }
+
+            let mut new_sample_paths = Vec::new();
+            if let Some(samples) = new_samples {
+                new_sample_paths = samples
+                    .into_iter()
+                    .filter(|p| {
+                        p.extension().and_then(|s| s.to_str()) == Some("fn6")
+                            || p.extension().and_then(|s| s.to_str()) == Some("fn5")
+                    })
+                    .collect();
+            }
+            if let Some(dir) = new_directory {
+                for entry in std::fs::read_dir(dir).unwrap() {
+                    let entry = entry.unwrap();
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("fn6")
+                        || path.extension().and_then(|s| s.to_str()) == Some("fn5")
+                    {
+                        new_sample_paths.push(path);
+                    }
+                }
+            }
+
+            if new_sample_paths.is_empty() {
+                eprintln!("No new samples to add");
+                return;
+            }
+
+            fn6::add_samples(existing_sample_paths, new_sample_paths, cutoff);
         }
     }
 }
