@@ -14,7 +14,7 @@ sha256 = "1.6.0"
 [profile.release]
 opt-level = 3
 lto = true
-debug-assertions = true # Required else lto gives no optimisations???
+debug-assertions = true
 codegen-units = 1
 panic = "abort"
 strip = false

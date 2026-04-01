@@ -1,3 +1,7 @@
+//! Module for handling the parsing of the reference, mask and sample FASTA files, as well as the distance calculation between samples.
+//!
+//! The main struct in this module is the `Sample` struct, which contains the positions of the A, C, G, T and N bases in the sample that differ from the reference and are not masked, as well as some metadata about the sample in the header.
+//! Also contains functions for calculating distances between `Sample` structs, or their `rkyv`'ed `ArchivedSample` counterparts, which are used to speed up distance calculations by avoiding the overhead of deserialization.
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufRead;
@@ -23,8 +27,9 @@ pub struct SampleHeader {
     pub version: String,
 }
 
-/// Struct to store the compressed sample data
-/// The `a`, `c`, `g`, `t` and `n` fields store the positions of the respective bases in the sample that differ from the reference and are not masked
+/// Struct to store the compressed sample data.
+/// The `a`, `c`, `g`, `t` and `n` fields store the positions of the respective bases in the sample that differ from the reference and are not masked.
+/// A Sample is a product of a sample's FASTA file, the reference genome which this is in respect to, and the mask.
 #[derive(Serialize, Deserialize, Archive)]
 #[repr(C)]
 pub struct Sample {
@@ -42,19 +47,19 @@ pub struct Sample {
     /// Whether this is a legacy save, and so whether the header should be expected to be empty.
     pub is_fn5: bool,
 
-    /// Positions where this sample is A and the reference is not A, and that are not masked
+    /// Positions where this sample is A and the reference is not A, and that are not masked.
     pub a: Vec<usize>,
 
-    /// Positions where this sample is C and the reference is not C, and that are not masked
+    /// Positions where this sample is C and the reference is not C, and that are not masked.
     pub c: Vec<usize>,
 
-    /// Positions where this sample is T and the reference is not T, and that are not masked
+    /// Positions where this sample is T and the reference is not T, and that are not masked.
     pub t: Vec<usize>,
 
-    /// Positions where this sample is G and the reference is not G, and that are not masked
+    /// Positions where this sample is G and the reference is not G, and that are not masked.
     pub g: Vec<usize>,
 
-    /// Positions where this sample is non-ACGT
+    /// Positions where this sample is non-ACGT.
     pub n: Vec<usize>,
 }
 
@@ -73,16 +78,16 @@ impl fmt::Display for Sample {
     }
 }
 
-/// Read normal or compressed files seamlessly
-/// Uses the presence of a `gz` extension to choose between the two
-/// https://users.rust-lang.org/t/write-to-normal-or-gzip-file-transparently/35561
+/// Read normal or compressed files seamlessly.
+/// Uses the presence of a `gz` extension to choose between the two:
+/// <https://users.rust-lang.org/t/write-to-normal-or-gzip-file-transparently/35561>
 ///
 /// # Arguments
 /// - `filename` - Path to the file
 ///
 /// # Returns
 /// - BufRead object to read the file
-pub fn get_reader(filename: &str) -> Box<dyn BufRead> {
+fn get_reader(filename: &str) -> Box<dyn BufRead> {
     let path = Path::new(filename);
     let file = match File::open(path) {
         Err(why) => panic!("couldn't open {}: {}", path.display(), why),
@@ -99,7 +104,7 @@ pub fn get_reader(filename: &str) -> Box<dyn BufRead> {
     }
 }
 
-/// Parse a given FATSA to extract the string of the genome
+/// Parse a given FASTA to extract the string of the genome.
 ///
 /// # Arguments
 /// - `filepath` - Path to the FASTA file
@@ -125,7 +130,7 @@ pub fn parse_reference(filepath: &Path) -> String {
             reference.push_str(line.trim());
         }
     }
-    if header_count > 1 {
+    if header_count != 1 {
         panic!(
             "Reference file {} contains more than one header. Only FASTA files of a single contig are allowed.",
             filepath.display()
@@ -135,7 +140,7 @@ pub fn parse_reference(filepath: &Path) -> String {
     reference
 }
 
-/// Parse a given mask file to extract the positions to be masked
+/// Parse a given mask file to extract the positions to be masked.
 /// Positions should be given as a line separated file, with 0-based positions.
 ///
 /// # Arguments
@@ -161,7 +166,7 @@ pub fn parse_mask(filepath: &Path) -> Vec<usize> {
 }
 
 impl Sample {
-    /// Instanciate a new sample from a FASTA file, given the reference and mask to compare against
+    /// Instanciate a new sample from a FASTA file, given the reference and mask to compare against.
     /// The sample will be parsed and the positions of the A, C, G, T and N bases that differ from the reference and are not masked will be stored in the respective fields of the struct.
     ///
     /// # Arguments
@@ -253,9 +258,9 @@ impl Sample {
     }
 }
 
-/// Parse a given FN5 file to extract the sample data and convert it to the new format
-/// Returns the bytes format of the ArchivedSample struct, which can be directly compared to the bytes format of samples created with the new method
-/// This extracts the sample name from the filepath, matching the FN5 format
+/// Parse a given FN5 file to extract the sample data and convert it to the new format.
+/// Returns the bytes format of the ArchivedSample struct, which can be directly compared to the bytes format of samples created with the new method.
+/// This extracts the sample name from the filepath, matching the FN5 format.
 ///
 /// # Arguments
 /// - `filepath` - Path to the FN5 file
@@ -329,7 +334,7 @@ pub fn from_fn5(filepath: &Path) -> Vec<u8> {
         .to_vec()
 }
 
-/// Calculate the distance between two samples, defined as the number of positions where they differ and that are not masked
+/// Calculate the distance between two samples, defined as the number of positions where they differ and that are not masked.
 /// This is done by comparing the positions of the A, C, G, T and N fields of the two samples, and counting the number of positions that are different between them.
 /// The distance is returned as an Option, where None indicates that the distance is above the given cutoff, and Some(distance) indicates that the distance is below the cutoff.
 /// The cutoff is used to speed up the distance calculation by allowing for early termination if the distance is already above the cutoff, as this is often the case when comparing samples that are not closely related.
@@ -340,7 +345,7 @@ pub fn from_fn5(filepath: &Path) -> Vec<u8> {
 /// - `cutoff` - Maximum distance to calculate before returning None
 ///
 /// # Returns
-/// - Option<usize> representing the distance between the two samples, or None if the distance is above the cutoff
+/// - `Option<usize>` representing the distance between the two samples, or None if the distance is above the cutoff
 ///
 /// # Panics
 /// - If the two samples are in respect to different masks or references, as this would make the distance calculation meaningless. Note that this is skipped if one of the saves is from FN5
@@ -417,7 +422,7 @@ pub fn distance(sample1: &Sample, sample2: &Sample, cutoff: usize) -> Option<usi
     Some(distances.len())
 }
 
-/// Calculate the distance between two samples, defined as the number of positions where they differ and that are not masked
+/// Calculate the distance between two samples, defined as the number of positions where they differ and that are not masked.
 /// Notably this differs from `distance` in that it takes ArchivedSamples as input, which are generated by `rkyv` as a way to avoid the overhead of deserialization.
 /// This is done by comparing the positions of the A, C, G, T and N fields of the two samples, and counting the number of positions that are different between them.
 /// The distance is returned as an Option, where None indicates that the distance is above the given cutoff, and Some(distance) indicates that the distance is below the cutoff.
@@ -429,7 +434,7 @@ pub fn distance(sample1: &Sample, sample2: &Sample, cutoff: usize) -> Option<usi
 /// - `cutoff` - Maximum distance to calculate before returning None
 ///
 /// # Returns
-/// - Option<usize> representing the distance between the two samples, or None if the distance is above the cutoff
+/// - `Option<usize>` representing the distance between the two samples, or None if the distance is above the cutoff
 ///
 /// # Panics
 /// - If the two samples are in respect to different masks or references, as this would make the distance calculation meaningless. Note that this is skipped if one of the saves is from FN5
@@ -510,7 +515,7 @@ pub fn arch_distance(
     Some(distances.len())
 }
 
-/// Helper function to calculate the distance between two samples for a given base, defined as the number of positions where they differ and that are not masked
+/// Helper function to calculate the distance between two samples for a given base, defined as the number of positions where they differ and that are not masked.
 ///
 /// # Arguments
 /// - `this_x` - Positions of the base in the first sample
@@ -519,7 +524,7 @@ pub fn arch_distance(
 /// - `sample_n` - Positions of the N bases in the second sample
 /// - `cutoff` - Maximum distance to calculate before returning
 /// - `distances` - HashSet to store the positions where the two samples differ for the given base, which is used to calculate the distance between the two samples. Note that this is required otherwise SNPs can be double counted if the same position is different between the two samples for multiple bases (e.g., A in one sample and C in the other, which would be counted as a difference for both the A and C fields if the positions were not stored in a HashSet to prevent double counting).
-pub fn dist<T: std::cmp::Ord + std::hash::Hash + Copy>(
+fn dist<T: std::cmp::Ord + std::hash::Hash + Copy>(
     this_x: &[T],
     this_n: &[T],
     sample_x: &[T],

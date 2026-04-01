@@ -1,3 +1,6 @@
+//! Fast, efficient SNP distance calculation from disk.
+//!
+//! Approximately 10x faster than FN5, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
 use std::{
     path::{Path, PathBuf},
     sync::Mutex,
@@ -8,28 +11,49 @@ use rayon::prelude::*;
 
 pub mod sample;
 
-/// Seemlessly load either a new fasta or an existing save
+/// Seemlessly load either a new fasta or an existing save.
 /// This is used by the CLI to allow users to either load existing .fn6 files or create new ones on the fly. If a .fn6 file is provided, it will be loaded and deserialized. If a .fn5 file is provided, it will be loaded and deserialized. If a FASTA file is provided, it will be processed and compressed into a Sample struct.
+/// All saves are then serialised to bytes with rkyv.
 pub fn load_save(
     filepath: &Path,
     reference: &str,
     mask: &[usize],
     mask_hash: &str,
     reference_hash: &str,
-) -> sample::Sample {
+) -> Vec<u8> {
     if filepath.to_str().unwrap().to_owned().ends_with(".fn6") {
-        let bytes = std::fs::read(filepath).unwrap();
-        let arch_sample = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&bytes[..]).unwrap();
-        // Deserialising is relatively expensive - using this leads to double RAM usage + slower runtime.
-        return rkyv::deserialize::<sample::Sample, rkyv::rancor::Error>(arch_sample).unwrap();
+        return std::fs::read(filepath).unwrap();
     }
     if filepath.to_str().unwrap().to_owned().ends_with(".fn5") {
-        let bytes = sample::from_fn5(filepath);
-        let arch_sample = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&bytes[..]).unwrap();
-        // Deserialising is relatively expensive - using this leads to double RAM usage + slower runtime.
-        return rkyv::deserialize::<sample::Sample, rkyv::rancor::Error>(arch_sample).unwrap();
+        return sample::from_fn5(filepath);
     }
-    sample::Sample::new(filepath, reference, mask, mask_hash, reference_hash)
+    let s = sample::Sample::new(filepath, reference, mask, mask_hash, reference_hash);
+    rkyv::to_bytes::<rkyv::rancor::Error>(&s).unwrap().to_vec()
+}
+
+/// Load a set of files into memory as byte vectors. This uses multithreading for performance.
+/// The byte vectors returned correspond to the `rkyv` serialized `sample::Sample` structs.
+///
+/// # Arguments
+/// - `filepaths`: A vector of paths to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`. FASTA files will be processed and compressed into `sample::Sample` structs and then serialized using `rkyv`.
+/// - `reference`: The reference genome sequence as a string. This is only required if at least 1 FASTA file is input
+/// - `mask`: A list of positions in the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based. This is only required if at least 1 FASTA file is input.
+/// - `mask_hash`: A hash of the mask file. This is used for QC to ensure that the same mask is used for all samples. This is only required if at least 1 FASTA file is input.
+/// - `reference_hash`: A hash of the reference genome. This is used for QC to ensure that the same reference is used for all samples. This is only required if at least 1 FASTA file is input.
+///
+/// # Returns
+/// A vector of byte vectors, where each byte vector is the `rkyv` serialized representation of a `sample::Sample` struct. The order of the byte vectors corresponds to the order of the input filepaths.
+pub fn load_arch_saves(
+    filepaths: Vec<PathBuf>,
+    reference: &str,
+    mask: &[usize],
+    mask_hash: &str,
+    reference_hash: &str,
+) -> Vec<Vec<u8>> {
+    filepaths
+        .par_iter()
+        .map(|sample_path| load_save(sample_path, reference, mask, mask_hash, reference_hash))
+        .collect()
 }
 
 /// Reference compress a sample (parse into `sample::Sample`) and save it to disk if it passes QC.
@@ -77,29 +101,6 @@ pub fn reference_compress(
     s
 }
 
-/// Load a set of .fn6 or .fn5 files into memory as byte vectors. This uses multithreading for performance.
-/// The byte vectors returned correspond to the `rkyv` serialized `sample::Sample` structs.
-///
-/// # Arguments
-/// - `filepaths`: A vector of paths to .fn6 or .fn5 files to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`.
-///
-/// # Returns
-/// A vector of byte vectors, where each byte vector is the `rkyv` serialized representation of a `sample::Sample` struct. The order of the byte vectors corresponds to the order of the input filepaths.
-fn load_arch_saves(filepaths: Vec<PathBuf>) -> Vec<Vec<u8>> {
-    filepaths
-        .par_iter()
-        .map(|sample_path| {
-            if sample_path.extension().and_then(|s| s.to_str()) == Some("fn6") {
-                std::fs::read(sample_path).unwrap()
-            } else if sample_path.extension().and_then(|s| s.to_str()) == Some("fn5") {
-                sample::from_fn5(sample_path)
-            } else {
-                panic!("Unsupported file type: {:?}", sample_path);
-            }
-        })
-        .collect()
-}
-
 /// Given a set of comparisons to do, compute the distances and print them to stdout as they are computed. This uses multithreading for performance, and a mutex to ensure that the output is not interleaved.
 ///
 /// # Arguments
@@ -108,7 +109,7 @@ fn load_arch_saves(filepaths: Vec<PathBuf>) -> Vec<Vec<u8>> {
 ///
 /// # Output
 /// The function prints the distances to stdout as they are computed. Each line of output corresponds to a pairwise comparison and is formatted as "sample1_name sample2_name distance". If the distance exceeds the cutoff, no distance is written.
-fn get_distances(comparisons: Vec<(&Vec<u8>, &Vec<u8>)>, cutoff: usize) {
+pub fn get_distances(comparisons: Vec<(&Vec<u8>, &Vec<u8>)>, cutoff: usize) {
     let distances: Mutex<Vec<(String, String, usize)>> = Mutex::new(Vec::new());
 
     let _ = comparisons
@@ -145,11 +146,37 @@ fn get_distances(comparisons: Vec<(&Vec<u8>, &Vec<u8>)>, cutoff: usize) {
 /// Compute all distances from a vec of genome save file paths. This is the main function for the "compute" command in the CLI. It loads the samples, figures out what comparisons to do, and then calls `get_distances` to compute and print the distances.
 ///
 /// # Arguments
-/// - `filepaths`: A vector of paths to .fn6 or .fn5 files to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`.
+/// - `filepaths`: A vector of files to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`. FASTA files will be reference compressed on the fly and then serialized using `rkyv`.
+/// - `reference`: The reference genome sequence as a string. This is only required if at least 1 FASTA file is input
+/// - `mask`: A list of positions in the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based. This is only required if at least 1 FASTA file is input.
+/// - `mask_hash`: A hash of the mask file. This is used for QC to ensure that the same mask is used for all samples. This is only required if at least 1 FASTA file is input.
+/// - `reference_hash`: A hash of the reference genome. This is used for QC to ensure that the same reference is used for all samples. This is only required if at least 1 FASTA file is input.
 /// - `cutoff`: The SNP threshold for distance calculation. If the distance between two samples exceeds this threshold, it will not be reported. This is used to speed up distance calculations by allowing for early termination when the distance is large.
-pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
+pub fn compute(
+    filepaths: Vec<PathBuf>,
+    reference: &str,
+    mask: &[usize],
+    mask_hash: &str,
+    reference_hash: &str,
+    cutoff: usize,
+    debug: bool,
+) {
     // Load the saves
-    let samples = load_arch_saves(filepaths);
+    let start_time = std::time::Instant::now();
+    let samples = load_arch_saves(
+        filepaths.clone(),
+        reference,
+        mask,
+        mask_hash,
+        reference_hash,
+    );
+    if debug {
+        eprintln!(
+            "Loaded {} samples in {:.2?}",
+            samples.len(),
+            start_time.elapsed()
+        );
+    }
 
     // Figure out what comparisons we need to do
     let mut comparisons: Vec<(&Vec<u8>, &Vec<u8>)> = Vec::new();
@@ -158,19 +185,41 @@ pub fn compute(filepaths: Vec<PathBuf>, cutoff: usize) {
             comparisons.push((sample1, sample2));
         }
     }
-
+    let n_comps = comparisons.len();
     get_distances(comparisons, cutoff);
+    if debug {
+        eprintln!(
+            "Computed {} distances in {:.2?} ({:.2?}) per comparison",
+            n_comps,
+            start_time.elapsed(),
+            start_time.elapsed() / n_comps as u32
+        );
+    }
 }
 
 /// Compute the distances required to add new samples to an existing set. This is the main function for the "add-samples" command in the CLI. It loads the existing and new samples, figures out what comparisons to do, and then calls `get_distances` to compute and print the distances.
 ///
 /// # Arguments
-/// - `existing`: A vector of paths to existing .fn6 or .fn5 files to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`.
-/// - `new_samples`: A vector of paths to new .fn6 or .fn5 files to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`.
+/// - `existing`: A vector of files to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`. FASTA files will be reference compressed on the fly and then serialized using `rkyv`. These are the existing samples that we want to add to.
+/// - `new_samples`: A vector of files to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`. FASTA files will be reference compressed on the fly and then serialized using `rkyv`. These are the new samples that we want to add to the existing set.
+/// - `reference`: The reference genome sequence as a string. This is only required if at least 1 FASTA file is input
+/// - `mask`: A list of positions in the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based. This is only required if at least 1 FASTA file is input.
+/// - `mask_hash`: A hash of the mask file. This is used for QC to ensure that the same mask is used for all samples. This is only required if at least 1 FASTA file is input.
+/// - `reference_hash`: A hash of the reference genome. This is used for QC to ensure that the same reference is used for all samples. This is only required if at least 1 FASTA file is input.
 /// - `cutoff`: The SNP threshold for distance calculation. If the distance between two samples exceeds this threshold, it will not be reported. This is used to speed up distance calculations by allowing for early termination when the distance is large.
-pub fn add_samples(existing: Vec<PathBuf>, new_samples: Vec<PathBuf>, cutoff: usize) {
-    let existing_samples = load_arch_saves(existing);
-    let new_samples = load_arch_saves(new_samples);
+pub fn add_samples(
+    existing: Vec<PathBuf>,
+    new_samples: Vec<PathBuf>,
+    reference: &str,
+    mask: &[usize],
+    mask_hash: &str,
+    reference_hash: &str,
+    cutoff: usize,
+    debug: bool,
+) {
+    let start_time = std::time::Instant::now();
+    let existing_samples = load_arch_saves(existing, reference, mask, mask_hash, reference_hash);
+    let new_samples = load_arch_saves(new_samples, reference, mask, mask_hash, reference_hash);
 
     let mut comparisons: Vec<(&Vec<u8>, &Vec<u8>)> = Vec::new();
     // Compare each existing sample to each new sample
@@ -186,5 +235,15 @@ pub fn add_samples(existing: Vec<PathBuf>, new_samples: Vec<PathBuf>, cutoff: us
         }
     }
 
+    let n_comps = comparisons.len();
     get_distances(comparisons, cutoff);
+
+    if debug {
+        eprintln!(
+            "Computed {} new distances in {:.2?} ({:.2?}) per comparison",
+            n_comps,
+            start_time.elapsed(),
+            start_time.elapsed() / n_comps as u32
+        );
+    }
 }
