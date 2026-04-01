@@ -207,6 +207,7 @@ pub fn compute(
 /// - `mask_hash`: A hash of the mask file. This is used for QC to ensure that the same mask is used for all samples. This is only required if at least 1 FASTA file is input.
 /// - `reference_hash`: A hash of the reference genome. This is used for QC to ensure that the same reference is used for all samples. This is only required if at least 1 FASTA file is input.
 /// - `cutoff`: The SNP threshold for distance calculation. If the distance between two samples exceeds this threshold, it will not be reported. This is used to speed up distance calculations by allowing for early termination when the distance is large.
+#[allow(clippy::too_many_arguments)] // It's not that many and they're all important...
 pub fn add_samples(
     existing: Vec<PathBuf>,
     new_samples: Vec<PathBuf>,
