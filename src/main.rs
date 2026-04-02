@@ -140,6 +140,14 @@ enum Commands {
         #[arg(long, short)]
         directory: Option<PathBuf>,
 
+        /// Line separated file to read paths from.
+        #[arg(long, short)]
+        list: Option<PathBuf>,
+
+        /// Output directory to write saves to. Useful when using `list` as it consolidates saves in a single directory. If not provided, the .fn6 files will be saved in the same directory as their corresponding FASTA files with the same name but with a .fn6 extension.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+
         /// FASTA file extension to look for when loading from a directory
         #[arg(long, default_value = "fasta")]
         fasta_extension: String,
@@ -198,6 +206,8 @@ fn main() {
             mask,
             samples,
             directory,
+            list,
+            output,
             fasta_extension,
             debug,
         } => {
@@ -226,9 +236,25 @@ fn main() {
                     }
                 }
             }
+            if let Some(list) = list {
+                let content = std::fs::read_to_string(list).unwrap();
+                for line in content.lines() {
+                    let path = PathBuf::from(line);
+                    if path.extension().and_then(|s| s.to_str()) == Some(&fasta_extension) {
+                        sample_paths.push(path);
+                    }
+                }
+            }
+            if let Some(output) = output.clone() {
+                std::fs::create_dir_all(&output).unwrap();
+            }
             let _ = sample_paths
                 .par_iter()
                 .map(|sample| {
+                    let output_path = match output {
+                        Some(ref dir) => Some(dir.join(sample.file_name().unwrap()).with_extension("fn6")),
+                        None => None,
+                    };
                     fn6::reference_compress(
                         sample,
                         &reference,
@@ -236,7 +262,7 @@ fn main() {
                         &mask_hash,
                         &reference_hash,
                         None,
-                        None,
+                        output_path,
                     )
                 })
                 .collect::<Vec<_>>();

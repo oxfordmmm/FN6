@@ -557,3 +557,40 @@ fn dist<T: std::cmp::Ord + std::hash::Hash + Copy>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+
+    #[test]
+    fn test_dist() {
+        let mut distances = HashSet::new();
+        // Basic dists
+        dist(&[1, 2, 3], &[4], &[2, 3, 4], &[], 10, &mut distances);
+        assert_eq!(distances.len(), 1);
+        assert!(distances.contains(&1));
+
+        distances.clear();
+
+        dist(&[1, 2, 3, 4, 5, 6], &[4], &[2, 3, 4], &[5], 10, &mut distances);
+        assert_eq!(distances.len(), 2);
+        assert!(distances.contains(&1));
+        assert!(distances.contains(&6));
+
+        distances.clear();
+
+        // Check that cutoff works
+        // There should be 2 SNPs here, but with a cutoff of 0, it should return at 1 SNP (to distinguish between dist at cutoff and above cutoff)
+        dist(&[1, 2, 3, 4, 5, 6], &[4], &[2, 3, 4], &[5], 0, &mut distances);
+        assert_eq!(distances.len(), 1);
+
+        distances.clear();
+
+        // Similarly but with 3 SNPs and cutoff 1
+        dist(&[1, 2, 3, 4, 5, 6, 7], &[4], &[2, 3, 4], &[5], 1, &mut distances);
+        assert_eq!(distances.len(), 2);
+    }
+}
