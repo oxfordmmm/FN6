@@ -263,7 +263,7 @@ fn main() {
                         &reference_hash,
                         None,
                         output_path,
-                    )
+                    );
                 })
                 .collect::<Vec<_>>();
             let duration = start.elapsed();

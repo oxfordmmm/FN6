@@ -2,8 +2,7 @@
 //!
 //! Approximately 10x faster than FN5, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
 use std::{
-    path::{Path, PathBuf},
-    sync::Mutex,
+    path::{Path, PathBuf}, sync::Mutex
 };
 
 use crate::sample::ArchivedSample;
@@ -111,6 +110,7 @@ pub fn reference_compress(
 /// The function prints the distances to stdout as they are computed. Each line of output corresponds to a pairwise comparison and is formatted as "sample1_name sample2_name distance". If the distance exceeds the cutoff, no distance is written.
 pub fn get_distances(comparisons: Vec<(&Vec<u8>, &Vec<u8>)>, cutoff: usize) {
     let distances: Mutex<Vec<(String, String, usize)>> = Mutex::new(Vec::new());
+    distances.lock().unwrap().reserve(1000);
 
     let _ = comparisons
         .par_iter()
@@ -179,14 +179,23 @@ pub fn compute(
     }
 
     // Figure out what comparisons we need to do
+    let mut n_comps: u64 = 0;
     let mut comparisons: Vec<(&Vec<u8>, &Vec<u8>)> = Vec::new();
     for (idx, sample1) in samples.iter().enumerate() {
         for sample2 in samples.iter().skip(idx + 1) {
             comparisons.push((sample1, sample2));
+            if comparisons.len() > 1_000_000 {
+                // We're doing a lot of comparisons, so batch them up to avoid excessive RAM usage
+                get_distances(comparisons, cutoff);
+                comparisons = Vec::new();
+            }
+            n_comps += 1;
         }
     }
-    let n_comps = comparisons.len();
+
+    // Get last distances
     get_distances(comparisons, cutoff);
+
     if debug {
         eprintln!(
             "Computed {} distances in {:.2?} ({:.2?}) per comparison",
@@ -223,20 +232,32 @@ pub fn add_samples(
     let new_samples = load_arch_saves(new_samples, reference, mask, mask_hash, reference_hash);
 
     let mut comparisons: Vec<(&Vec<u8>, &Vec<u8>)> = Vec::new();
+    let mut n_comps: u64 = 0;
     // Compare each existing sample to each new sample
     for sample1 in existing_samples.iter() {
         for sample2 in new_samples.iter() {
             comparisons.push((sample1, sample2));
+            if comparisons.len() > 1_000_000 {
+                // We're doing a lot of comparisons, so batch them up to avoid excessive RAM usage
+                get_distances(comparisons, cutoff);
+                comparisons = Vec::new();
+            }
+            n_comps += 1;
         }
     }
     // And each new sample to each other
     for (idx, sample1) in new_samples.iter().enumerate() {
         for sample2 in new_samples.iter().skip(idx + 1) {
             comparisons.push((sample1, sample2));
+            if comparisons.len() > 1_000_000 {
+                // We're doing a lot of comparisons, so batch them up to avoid excessive RAM usage
+                get_distances(comparisons, cutoff);
+                comparisons = Vec::new();
+            }
+            n_comps += 1;
         }
     }
 
-    let n_comps = comparisons.len();
     get_distances(comparisons, cutoff);
 
     if debug {
