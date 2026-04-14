@@ -36,7 +36,7 @@ enum Commands {
         debug: bool,
     },
 
-    /// Compute distances
+    /// Compute SNP distances
     Compute {
         /// Path to the reference genome FASTA file.
         /// Only required if >=1 of the samples specified are fasta files

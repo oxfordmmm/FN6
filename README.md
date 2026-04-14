@@ -4,6 +4,127 @@ Fast, efficient and scalable SNP distance calculation from disk.
 FN5 reworked into Rust. Approximately 10x faster, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
 
 
+## Usage
+All FASTA inputs can be optionally gzipped.
+```bash
+Usage: fn6 <COMMAND>
+
+Commands:
+  reference-compress  Reference compress a sample genome. This will create a .fn6 file that can be used for fast comparisons with other samples. The .fn6 file is a binary file that contains the compressed representation of the sample genome, as well as metadata about the reference and mask used for compression
+  compute             Compute distances
+  add-samples         Add some samples to existing samples. Only computes the extra distances required rather than all pairwise distances
+  bulk-compress       Reference compress a set of genomes. Dumber than `ReferenceCompress` as it doesn't allow for setting specific IDs or output paths, but much faster as it can be parallelized across samples
+  help                Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+```
+
+### Reference compress
+```bash
+Reference compress a sample genome. This will create a .fn6 file that can be used for fast comparisons with other samples. The .fn6 file is a binary file that contains the compressed representation of the sample genome, as well as metadata about the reference and mask used for compression
+
+Usage: fn6 reference-compress [OPTIONS] <REFERENCE> <MASK> <SAMPLE>
+
+Arguments:
+  <REFERENCE>  Path to the reference genome FASTA file
+  <MASK>       Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines
+  <SAMPLE>     Path to the sample genome FASTA file
+
+Options:
+      --id <ID>          ID for this sample
+      --output <OUTPUT>  Output path for the .fn6 file. If not provided, the .fn6 file will be saved in the same directory as the sample FASTA file with the same name but with a .fn6 extension
+      --debug            Whether to print debug information to stderr
+  -h, --help             Print help
+
+```
+
+### Compute
+```bash
+Compute SNP distances
+
+Usage: fn6 compute [OPTIONS]
+
+Options:
+  -r, --reference <REFERENCE>
+          Path to the reference genome FASTA file. Only required if >=1 of the samples specified are fasta files
+  -m, --mask <MASK>
+          Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines. Only required if >=1 of the samples specified are fasta files
+  -s, --samples <SAMPLES>...
+          Paths to sample files. Either .fn6, .fn5 or FASTA files. If FASTA files are provided, the `allow-fasta` flag must also be used. They will then be reference compressed on the fly (using the provided reference and mask) before distance computation
+  -d, --directory <DIRECTORY>
+          Directory to load from. Either .fn6, .fn5 or FASTA files. If FASTA files are provided, the `allow-fasta` flag must also be used. They will then be reference compressed on the fly (using the provided reference and mask) before distance computation
+      --cutoff <CUTOFF>
+          SNP threshold [default: 20]
+      --fasta-extension <FASTA_EXTENSION>
+          FASTA file extension to look for when loading from a directory. Only used if loading from a directory and if reference and mask are provided (i.e., if FASTA files need to be reference compressed on the fly). Default is "fasta" [default: fasta]
+      --allow-fasta
+          Whether to enable computation from FASTAs. It is recommended to pre-cache the reference compressed versions of the new samples to speed up computation
+      --debug
+          Whether to print debug information to stderr
+  -h, --help
+          Print help
+```
+
+### Add samples
+```bash
+Add some samples to existing samples. Only computes the extra distances required rather than all pairwise distances
+
+Usage: fn6 add-samples [OPTIONS]
+
+Options:
+  -r, --reference <REFERENCE>
+          Path to the reference genome FASTA file. Only required if >=1 of the samples specified are fasta files
+  -m, --mask <MASK>
+          Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines. Only required if >=1 of the samples specified are fasta files
+  -s, --existing-samples <EXISTING_SAMPLES>...
+          Paths to existing sample files. Either .fn6, .fn5 or FASTA files. If FASTA files are provided, the `allow-fasta` flag must also be used. They will then be reference compressed on the fly (using the provided reference and mask) before distance computation
+  -d, --existing-directory <EXISTING_DIRECTORY>
+          Directory to load existing saves from. Either .fn6, .fn5 or FASTA files. If FASTA files are provided, the `allow-fasta` flag must also be used. They will then be reference compressed on the fly (using the provided reference and mask) before distance computation
+  -S, --new-samples <NEW_SAMPLES>...
+          Paths to sample files to add. Either .fn6, .fn5 or FASTA files. If FASTA files are provided, the `allow-fasta` flag must also be used. They will then be reference compressed on the fly (using the provided reference and mask) before distance computation
+  -D, --new-directory <NEW_DIRECTORY>
+          Directory to load new saves from. Either .fn6, .fn5 or FASTA files. If FASTA files are provided, the `allow-fasta` flag must also be used. They will then be reference compressed on the fly (using the provided reference and mask) before distance computation
+      --cutoff <CUTOFF>
+          SNP threshold [default: 20]
+  -f, --fasta-extension <FASTA_EXTENSION>
+          FASTA file extension to look for when loading from a directory. Only used if loading from a directory and if reference and mask are provided (i.e., if FASTA files need to be reference compressed on the fly). Default is "fasta" [default: fasta]
+      --allow-fasta
+          Whether to enable computation from FASTAs. It is recommended to pre-cache the reference compressed versions of the new samples to speed up computation
+      --debug
+          Whether to print debug information to stderr
+  -h, --help
+          Print help
+```
+
+### Bulk Compress
+```bash
+Reference compress a set of genomes. Dumber than `ReferenceCompress` as it doesn't allow for setting specific IDs or output paths, but much faster as it can be parallelized across samples
+
+Usage: fn6 bulk-compress [OPTIONS] <REFERENCE> <MASK>
+
+Arguments:
+  <REFERENCE>  Path to the reference genome FASTA file
+  <MASK>       Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines
+
+Options:
+  -s, --samples <SAMPLES>...
+          Paths to sample files. Either FASTA files or .fn6 files
+  -d, --directory <DIRECTORY>
+          Directory to load from
+  -l, --list <LIST>
+          Line separated file to read paths from
+  -o, --output <OUTPUT>
+          Output directory to write saves to. Useful when using `list` as it consolidates saves in a single directory. If not provided, the .fn6 files will be saved in the same directory as their corresponding FASTA files with the same name but with a .fn6 extension
+      --fasta-extension <FASTA_EXTENSION>
+          FASTA file extension to look for when loading from a directory [default: fasta]
+      --debug
+          Whether to print debug information to stderr
+  -h, --help
+          Print help
+```
+
 ## Performance
 Both FN5 and FN6 produce the same results, but with condsiderable time differences. Below is a table of comparison between FN5 and FN6 performance on varying sets of _Mycobacterium tuberculosis_ samples, randomly selected from the CRyPTIC dataset https://doi.org/10.5281/zenodo.16041005
 All of the benchmarks were run on the same laptop with an Intel i9-13900H and 32GB RAM, directly from SSD.
