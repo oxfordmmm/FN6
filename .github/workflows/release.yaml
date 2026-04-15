@@ -6,11 +6,8 @@
 name: CI
 
 on:
-  push:
-    tags:
-      - '*'
-  pull_request:
-  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
