@@ -18,6 +18,7 @@ fn fn6(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(load_samples, m)?)?;
     m.add_function(wrap_pyfunction!(compute, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::sample::distance, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     Ok(())
