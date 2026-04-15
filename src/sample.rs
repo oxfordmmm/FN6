@@ -17,7 +17,7 @@ use flate2::read::MultiGzDecoder;
 use rkyv::{Archive, Deserialize, Serialize};
 
 /// Header struct to store some metadata about the save
-#[pyclass(get_all, set_all, from_py_object)]
+#[pyclass(get_all, set_all, from_py_object, str)]
 #[derive(Debug, Serialize, Deserialize, Archive, Clone)]
 #[repr(C)]
 pub struct SampleHeader {
@@ -34,7 +34,7 @@ pub struct SampleHeader {
 /// Struct to store the compressed sample data.
 /// The `a`, `c`, `g`, `t` and `n` fields store the positions of the respective bases in the sample that differ from the reference and are not masked.
 /// A Sample is a product of a sample's FASTA file, the reference genome which this is in respect to, and the mask.
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, str)]
 #[derive(Serialize, Deserialize, Archive)]
 #[repr(C)]
 pub struct Sample {
@@ -83,17 +83,12 @@ impl fmt::Display for Sample {
     }
 }
 
-impl fmt::Debug for Sample {
+impl fmt::Display for SampleHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Sample")
-            .field("header", &self.header)
-            .field("name", &self.name)
-            .field("is_qc_passed", &self.is_qc_passed)
-            .field("a", &self.a.len())
-            .field("c", &self.c.len())
-            .field("g", &self.t.len())
-            .field("t", &self.g.len())
-            .field("n", &self.n.len())
+        f.debug_struct("SampleHeader")
+            .field("reference_hash", &self.reference_hash)
+            .field("mask_hash", &self.mask_hash)
+            .field("version", &self.version)
             .finish()
     }
 }
