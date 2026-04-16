@@ -5,7 +5,6 @@ FN5 reworked into Rust. Approximately 10x faster, easier to use and maintain, an
 
 # TODO
 * Tests
-* Python bindings
 
 
 ## Usage

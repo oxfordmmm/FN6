@@ -2,6 +2,7 @@
 //!
 //! The main struct in this module is the `Sample` struct, which contains the positions of the A, C, G, T and N bases in the sample that differ from the reference and are not masked, as well as some metadata about the sample in the header.
 //! Also contains functions for calculating distances between `Sample` structs, or their `rkyv`'ed `ArchivedSample` counterparts, which are used to speed up distance calculations by avoiding the overhead of deserialization.
+#![doc = include_str!("../README.md")]
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufRead;
@@ -9,12 +10,15 @@ use std::io::BufReader;
 use std::path::Path;
 use std::{ffi::OsStr, fmt};
 
+use pyo3::prelude::*;
+
 use flate2::read::MultiGzDecoder;
 
 use rkyv::{Archive, Deserialize, Serialize};
 
 /// Header struct to store some metadata about the save
-#[derive(Debug, Serialize, Deserialize, Archive)]
+#[pyclass(get_all, set_all, from_py_object, str)]
+#[derive(Debug, Serialize, Deserialize, Archive, Clone)]
 #[repr(C)]
 pub struct SampleHeader {
     /// SHA256 hash of the reference genome
@@ -30,6 +34,7 @@ pub struct SampleHeader {
 /// Struct to store the compressed sample data.
 /// The `a`, `c`, `g`, `t` and `n` fields store the positions of the respective bases in the sample that differ from the reference and are not masked.
 /// A Sample is a product of a sample's FASTA file, the reference genome which this is in respect to, and the mask.
+#[pyclass(get_all, set_all, str)]
 #[derive(Serialize, Deserialize, Archive)]
 #[repr(C)]
 pub struct Sample {
@@ -74,6 +79,16 @@ impl fmt::Display for Sample {
             .field("g", &self.t.len())
             .field("t", &self.g.len())
             .field("n", &self.n.len())
+            .finish()
+    }
+}
+
+impl fmt::Display for SampleHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SampleHeader")
+            .field("reference_hash", &self.reference_hash)
+            .field("mask_hash", &self.mask_hash)
+            .field("version", &self.version)
             .finish()
     }
 }
@@ -350,6 +365,7 @@ pub fn from_fn5(filepath: &Path) -> Vec<u8> {
 /// # Panics
 /// - If the two samples are in respect to different masks or references, as this would make the distance calculation meaningless. Note that this is skipped if one of the saves is from FN5
 /// - If the two samples are in respect to different versions, as this would indicate that they are not comparable. Note that this is skipped if one of the saves is from FN5
+#[pyfunction(signature = (sample1, sample2, cutoff = 20))]
 pub fn distance(sample1: &Sample, sample2: &Sample, cutoff: usize) -> Option<usize> {
     if !sample1.is_qc_passed || !sample2.is_qc_passed {
         eprintln!(
@@ -564,7 +580,6 @@ mod tests {
 
     use super::*;
 
-
     #[test]
     fn test_dist() {
         let mut distances = HashSet::new();
@@ -575,7 +590,14 @@ mod tests {
 
         distances.clear();
 
-        dist(&[1, 2, 3, 4, 5, 6], &[4], &[2, 3, 4], &[5], 10, &mut distances);
+        dist(
+            &[1, 2, 3, 4, 5, 6],
+            &[4],
+            &[2, 3, 4],
+            &[5],
+            10,
+            &mut distances,
+        );
         assert_eq!(distances.len(), 2);
         assert!(distances.contains(&1));
         assert!(distances.contains(&6));
@@ -584,13 +606,27 @@ mod tests {
 
         // Check that cutoff works
         // There should be 2 SNPs here, but with a cutoff of 0, it should return at 1 SNP (to distinguish between dist at cutoff and above cutoff)
-        dist(&[1, 2, 3, 4, 5, 6], &[4], &[2, 3, 4], &[5], 0, &mut distances);
+        dist(
+            &[1, 2, 3, 4, 5, 6],
+            &[4],
+            &[2, 3, 4],
+            &[5],
+            0,
+            &mut distances,
+        );
         assert_eq!(distances.len(), 1);
 
         distances.clear();
 
         // Similarly but with 3 SNPs and cutoff 1
-        dist(&[1, 2, 3, 4, 5, 6, 7], &[4], &[2, 3, 4], &[5], 1, &mut distances);
+        dist(
+            &[1, 2, 3, 4, 5, 6, 7],
+            &[4],
+            &[2, 3, 4],
+            &[5],
+            1,
+            &mut distances,
+        );
         assert_eq!(distances.len(), 2);
     }
 }

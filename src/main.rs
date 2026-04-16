@@ -251,10 +251,7 @@ fn main() {
             let _ = sample_paths
                 .par_iter()
                 .map(|sample| {
-                    let output_path = match output {
-                        Some(ref dir) => Some(dir.join(sample.file_name().unwrap()).with_extension("fn6")),
-                        None => None,
-                    };
+                    let output_path = output.as_ref().map(|dir| dir.join(sample.file_name().unwrap()).with_extension("fn6"));
                     fn6::reference_compress(
                         sample,
                         &reference,

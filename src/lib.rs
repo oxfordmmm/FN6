@@ -2,11 +2,14 @@
 //!
 //! Approximately 10x faster than FN5, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
 use std::{
-    path::{Path, PathBuf}, sync::Mutex
+    path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 use crate::sample::ArchivedSample;
 use rayon::prelude::*;
+
+pub mod py_lib;
 
 pub mod sample;
 
