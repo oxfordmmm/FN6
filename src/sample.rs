@@ -213,19 +213,24 @@ impl Sample {
             if !line.is_empty() {
                 if name.is_empty() && line.starts_with(">") {
                     // This is a bit hacky but allows for some variation in the header format
-                    // `>chr1|chr1.fa`, `>chr1 description` and `>chr1` will all work, and the sample name will be `chr1` in both cases
+                    // `>some description here|chr1`, `>chr1 description` and `>chr1` will all work, and the sample name will be `chr1` in both cases
                     name = line
+                        .split("|")
+                        .last()
+                        .unwrap()
                         .split_whitespace()
                         .collect::<Vec<&str>>()
                         .first()
                         .unwrap()
-                        .split("|")
-                        .last()
-                        .unwrap()
                         .trim()
                         .replace(">", "");
                     continue;
-                } else if line.starts_with(">") || line.starts_with(";") {
+                } else if line.starts_with(">") {
+                    panic!(
+                        "Multi-FASTA files are not supported; file {} contains more than one header",
+                        filepath.display()
+                    );
+                } else if line.starts_with(";") {
                     continue;
                 } else {
                     for ch in line.chars() {
@@ -580,6 +585,13 @@ mod tests {
 
     use super::*;
 
+    macro_rules! assert_panics {
+        ($expression:expr) => {
+            let result = std::panic::catch_unwind(|| $expression);
+            assert!(result.is_err());
+        };
+    }
+
     #[test]
     fn test_dist() {
         let mut distances = HashSet::new();
@@ -628,5 +640,184 @@ mod tests {
             &mut distances,
         );
         assert_eq!(distances.len(), 2);
+    }
+
+    #[test]
+    fn test_distance() {
+        let mut sample1 = Sample {
+            header: SampleHeader {
+                reference_hash: "refhash".to_string(),
+                mask_hash: "maskhash".to_string(),
+                version: "1.0".to_string(),
+            },
+            name: "sample1".to_string(),
+            is_qc_passed: true,
+            is_fn5: false,
+            a: vec![1, 2, 3],
+            c: vec![4],
+            g: vec![5],
+            t: vec![6],
+            n: vec![8],
+        };
+        let mut sample2 = Sample {
+            header: SampleHeader {
+                reference_hash: "refhash".to_string(),
+                mask_hash: "maskhash".to_string(),
+                version: "1.0".to_string(),
+            },
+            name: "sample2".to_string(),
+            is_qc_passed: true,
+            is_fn5: false,
+            a: vec![2, 3, 4],
+            c: vec![5],
+            g: vec![6],
+            t: vec![8],
+            n: vec![9],
+        };
+        assert_eq!(distance(&sample1, &sample2, 10), Some(4));
+
+        // Either sample being FN5 shouldn't change anything
+        sample1.is_fn5 = true;
+        assert_eq!(distance(&sample1, &sample2, 10), Some(4));
+        sample2.is_fn5 = true;
+        assert_eq!(distance(&sample1, &sample2, 10), Some(4));
+
+        sample1.is_fn5 = false;
+        sample2.is_fn5 = false;
+
+        // Check that QC failure works
+        sample1.is_qc_passed = false;
+        assert_eq!(distance(&sample1, &sample2, 10), None);
+
+        sample1.is_qc_passed = true;
+
+        // Check that hash mismatches panic
+        sample1.header.mask_hash = "differentmaskhash".to_string();
+        assert_panics!(distance(&sample1, &sample2, 10));
+        sample1.header.mask_hash = "maskhash".to_string();
+
+        sample1.header.reference_hash = "differentreferencehash".to_string();
+        assert_panics!(distance(&sample1, &sample2, 10));
+        sample1.header.reference_hash = "refhash".to_string();
+
+        sample1.header.version = "2.0".to_string();
+        assert_panics!(distance(&sample1, &sample2, 10));
+    }
+
+    #[test]
+    fn test_arch_distance() {
+        let sample1 = Sample {
+            header: SampleHeader {
+                reference_hash: "refhash".to_string(),
+                mask_hash: "maskhash".to_string(),
+                version: "1.0".to_string(),
+            },
+            name: "sample1".to_string(),
+            is_qc_passed: true,
+            is_fn5: false,
+            a: vec![1, 2, 3],
+            c: vec![4],
+            g: vec![5],
+            t: vec![6],
+            n: vec![8],
+        };
+        let sample2 = Sample {
+            header: SampleHeader {
+                reference_hash: "refhash".to_string(),
+                mask_hash: "maskhash".to_string(),
+                version: "1.0".to_string(),
+            },
+            name: "sample2".to_string(),
+            is_qc_passed: true,
+            is_fn5: false,
+            a: vec![2, 3, 4],
+            c: vec![5],
+            g: vec![6],
+            t: vec![8],
+            n: vec![9],
+        };
+        let archived_sample1 = rkyv::to_bytes::<rkyv::rancor::Error>(&sample1)
+            .unwrap()
+            .to_vec();
+        let archived_sample2 = rkyv::to_bytes::<rkyv::rancor::Error>(&sample2)
+            .unwrap()
+            .to_vec();
+        let archived_sample1 =
+            rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&archived_sample1[..]).unwrap();
+        let archived_sample2 =
+            rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&archived_sample2[..]).unwrap();
+        assert_eq!(
+            arch_distance(archived_sample1, archived_sample2, 10),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn test_from_sample() {
+        let reference = parse_reference(Path::new("tests/cases/dummy/reference.fasta"));
+        let mask = parse_mask(Path::new("tests/cases/dummy/mask.txt"));
+        let reference_hash = sha256::digest(reference.as_bytes());
+        let mask_hash = sha256::digest(
+            mask.iter()
+                .map(|x| x.to_string())
+                .collect::<String>()
+                .as_bytes(),
+        );
+        let sample1 = Sample::new(
+            Path::new("tests/cases/dummy/1.fasta"),
+            &reference,
+            &mask,
+            &mask_hash,
+            &reference_hash,
+        );
+        let sample2 = Sample::new(
+            Path::new("tests/cases/dummy/2.fasta"),
+            &reference,
+            &mask,
+            &mask_hash,
+            &reference_hash,
+        );
+
+        assert_eq!(sample1.name, "uuid1".to_string());
+        assert_eq!(sample2.name, "uuid2".to_string());
+        assert_eq!(distance(&sample1, &sample2, 10), Some(1));
+    }
+
+    #[test]
+    fn test_from_fn6() {
+        let bytes1 = std::fs::read(Path::new("tests/cases/dummy/fn6_saves/1.fn6")).unwrap();
+        let bytes2 = std::fs::read(Path::new("tests/cases/dummy/fn6_saves/2.fn6")).unwrap();
+        let sample1 = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&bytes1[..]).unwrap();
+        let sample2 = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&bytes2[..]).unwrap();
+        assert_eq!(sample1.name, "uuid1".to_string());
+        assert_eq!(sample2.name, "uuid2".to_string());
+        assert_eq!(arch_distance(sample1, sample2, 10), Some(1));
+    }
+
+    #[test]
+    fn test_from_fn5() {
+        let bytes1 = from_fn5(Path::new("tests/cases/dummy/fn5_saves/uuid1.fn5"));
+        let bytes2 = from_fn5(Path::new("tests/cases/dummy/fn5_saves/uuid2.fn5"));
+        let sample1 = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&bytes1[..]).unwrap();
+        let sample2 = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&bytes2[..]).unwrap();
+        assert_eq!(sample1.name, "uuid1".to_string());
+        assert_eq!(sample2.name, "uuid2".to_string());
+        assert_eq!(arch_distance(sample1, sample2, 10), Some(1));
+    }
+
+    #[test]
+    fn test_parse_reference() {
+        let reference = parse_reference(Path::new("tests/cases/dummy/reference.fasta"));
+        assert_eq!(
+            reference,
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn test_parse_mask() {
+        let mask = parse_mask(Path::new("tests/cases/dummy/mask.txt"));
+        assert_eq!(mask, vec![1]);
     }
 }
