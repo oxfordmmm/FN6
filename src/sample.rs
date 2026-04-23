@@ -18,7 +18,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 /// Header struct to store some metadata about the save
 #[pyclass(get_all, set_all, from_py_object, str)]
-#[derive(Debug, Serialize, Deserialize, Archive, Clone)]
+#[derive(Debug, Serialize, Deserialize, Archive, Clone, PartialEq)]
 #[repr(C)]
 pub struct SampleHeader {
     /// SHA256 hash of the reference genome
@@ -83,6 +83,22 @@ impl fmt::Display for Sample {
     }
 }
 
+impl fmt::Debug for Sample {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sample")
+            .field("header", &self.header)
+            .field("name", &self.name)
+            .field("is_qc_passed", &self.is_qc_passed)
+            .field("is_fn5", &self.is_fn5)
+            .field("a", &self.a.len())
+            .field("c", &self.c.len())
+            .field("g", &self.t.len())
+            .field("t", &self.g.len())
+            .field("n", &self.n.len())
+            .finish()
+    }
+}
+
 impl fmt::Display for SampleHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SampleHeader")
@@ -90,6 +106,26 @@ impl fmt::Display for SampleHeader {
             .field("mask_hash", &self.mask_hash)
             .field("version", &self.version)
             .finish()
+    }
+}
+
+impl std::cmp::PartialEq for Sample {
+    fn eq(&self, other: &Self) -> bool {
+        let header_check = if self.is_fn5 || other.is_fn5 {
+            // If either sample is from FN5, skip the header check, as FN5 saves don't have headers
+            true
+        } else {
+            self.header == other.header
+        };
+
+        self.name == other.name
+            && self.is_qc_passed == other.is_qc_passed
+            && self.a == other.a
+            && self.c == other.c
+            && self.g == other.g
+            && self.t == other.t
+            && self.n == other.n
+            && header_check
     }
 }
 
@@ -234,6 +270,12 @@ impl Sample {
                     continue;
                 } else {
                     for ch in line.chars() {
+                        if reference.len() <= char_counter {
+                            panic!(
+                                "Sample {} is longer than the reference genome; cannot compare",
+                                filepath.display()
+                            );
+                        }
                         if !(ch as u8 == reference.as_bytes()[char_counter]
                             || mask.binary_search(&char_counter).is_ok())
                         {

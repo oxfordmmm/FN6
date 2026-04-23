@@ -6,3 +6,7 @@
 *.fn5
 *.tar.gz
 massif.out*
+
+tarpaulin-report.html
+
+!tests/cases/**/*

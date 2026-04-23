@@ -1,3 +1,4 @@
+#![cfg(not(tarpaulin_include))]
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -62,6 +63,10 @@ enum Commands {
         #[arg(long, default_value_t = 20)]
         cutoff: usize,
 
+        /// Path to a file to store distances in using a space-separated file. Columns are sample1, sample2, distance. If not provided, distances will be printed to stdout in the same format.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+
         /// FASTA file extension to look for when loading from a directory. Only used if loading from a directory and if reference and mask are provided (i.e., if FASTA files need to be reference compressed on the fly). Default is "fasta".
         #[arg(long, default_value = "fasta")]
         fasta_extension: String,
@@ -110,6 +115,10 @@ enum Commands {
         /// SNP threshold
         #[arg(long, default_value_t = 20)]
         cutoff: usize,
+
+        /// Path to a file to store distances in using a space-separated file. Columns are sample1, sample2, distance. If not provided, distances will be printed to stdout in the same format.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
 
         /// FASTA file extension to look for when loading from a directory. Only used if loading from a directory and if reference and mask are provided (i.e., if FASTA files need to be reference compressed on the fly). Default is "fasta".
         #[arg(long, short, default_value = "fasta")]
@@ -288,6 +297,7 @@ fn main() {
             fasta_extension,
             allow_fasta,
             debug,
+            output,
         } => {
             let mut sample_paths = Vec::new();
             let mut contains_fasta = false;
@@ -354,6 +364,7 @@ fn main() {
                 &mask_hash,
                 &reference_hash,
                 cutoff,
+                output,
                 debug,
             );
         }
@@ -368,6 +379,7 @@ fn main() {
             fasta_extension,
             allow_fasta,
             debug,
+            output,
         } => {
             let mut contains_fasta = false;
             let mut existing_sample_paths = Vec::new();
@@ -482,6 +494,7 @@ fn main() {
                 &mask_hash,
                 &reference_hash,
                 cutoff,
+                output,
                 debug,
             );
         }
