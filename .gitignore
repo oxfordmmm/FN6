@@ -10,3 +10,7 @@ massif.out*
 tarpaulin-report.html
 
 !tests/cases/**/*
+
+!NC_000962.3.fasta
+!tb-exclude.txt
+!NC_045512.fasta

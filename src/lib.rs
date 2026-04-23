@@ -172,6 +172,7 @@ pub fn get_distances(
 /// - `mask_hash`: A hash of the mask file. This is used for QC to ensure that the same mask is used for all samples. This is only required if at least 1 FASTA file is input.
 /// - `reference_hash`: A hash of the reference genome. This is used for QC to ensure that the same reference is used for all samples. This is only required if at least 1 FASTA file is input.
 /// - `cutoff`: The SNP threshold for distance calculation. If the distance between two samples exceeds this threshold, it will not be reported. This is used to speed up distance calculations by allowing for early termination when the distance is large.
+#[allow(clippy::too_many_arguments)] // It's not that many and they're all important...
 pub fn compute(
     filepaths: Vec<PathBuf>,
     reference: &str,
@@ -435,25 +436,25 @@ mod tests {
         // Not from fn5/6 files, so should panic if reference or mask don't match
         load_save(
             &PathBuf::from("tests/cases/dummy/fn5_saves/uuid1.fn5"),
-            &"",
-            &vec![],
-            &"",
-            &"",
+            "",
+            &[],
+            "",
+            "",
         );
         load_save(
             &PathBuf::from("tests/cases/dummy/fn6_saves/1.fn6"),
-            &"",
-            &vec![],
-            &"",
-            &"",
+            "",
+            &[],
+            "",
+            "",
         );
 
         // Parsing from fasta with the correct reference but no mask should be fine too
         load_save(
             &PathBuf::from("tests/cases/dummy/1.fasta"),
             &reference,
-            &vec![],
-            &"",
+            &[],
+            "",
             &reference_hash,
         );
     }
@@ -670,10 +671,10 @@ mod tests {
                 PathBuf::from("tests/cases/dummy/fn6_saves/4.fn6"),
                 PathBuf::from("tests/cases/dummy/fn6_saves/5.fn6"),
             ],
-            &"",
-            &vec![],
-            &"",
-            &"",
+            "",
+            &[],
+            "",
+            "",
             20,
             Some(output_path.clone()),
             false,
@@ -697,10 +698,10 @@ mod tests {
                 PathBuf::from("tests/cases/dummy/fn5_saves/uuid4.fn5"),
                 PathBuf::from("tests/cases/dummy/fn5_saves/uuid5.fn5"),
             ],
-            &"",
-            &vec![],
-            &"",
-            &"",
+            "",
+            &[],
+            "",
+            "",
             20,
             Some(output_path.clone()),
             false,

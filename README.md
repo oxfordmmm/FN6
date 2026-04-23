@@ -3,9 +3,6 @@ Fast, efficient and scalable SNP distance calculation from disk.
 
 FN5 reworked into Rust. Approximately 10x faster, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
 
-# TODO
-* Tests
-
 
 ## Usage
 All FASTA inputs can be optionally gzipped.
@@ -151,3 +148,9 @@ Mean time to load a save from disk across all above runs:
 
 
 This also demonstrates the importance of utilising a SNP cutoff within the computation. Otherwise, per sample comparison times scale according to how disparate samples are. 
+
+## Testing
+For simplicity, testing is based on a dummy genome with 80 bases. This allows for known SNPs to be introduced and manually calculated
+```bash
+cargo test
+```
