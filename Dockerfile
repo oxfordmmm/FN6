@@ -1,8 +1,8 @@
-# Make sure RUST_VERSION matches the Rust version
 ARG APP_NAME=fn6
 
 ################################################################################
 # Create a stage for building the application.
+# Notably we need python3.12 for the build process (due to the python bindings)
 ################################################################################
 
 FROM python:3.12.13-trixie AS build
@@ -25,11 +25,6 @@ RUN --mount=type=bind,source=src,target=src \
     . $HOME/.cargo/env && \
     cargo build --locked --release && \
     cp ./target/release/$APP_NAME /bin/fn6
-
-################################################################################
-# Create a new stage for running the application that contains the minimal
-# We use dhi.io/static for the final stage because it’s a minimal Docker Hardened Image runtime (basically “just # enough OS to run the binary”), which helps keep the image small and with a lower attack surface compared to a # # full Alpine/Debian runtime.
-################################################################################
 
 FROM ubuntu:latest AS final
 
