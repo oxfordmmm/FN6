@@ -1,3 +1,4 @@
+#![cfg(not(tarpaulin_include))]
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -18,7 +19,7 @@ enum Commands {
         reference: PathBuf,
 
         /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
-        mask: PathBuf,
+        mask: Option<PathBuf>,
 
         /// Path to the sample genome FASTA file
         sample: PathBuf,
@@ -61,6 +62,10 @@ enum Commands {
         /// SNP threshold
         #[arg(long, default_value_t = 20)]
         cutoff: usize,
+
+        /// Path to a file to store distances in using a space-separated file. Columns are sample1, sample2, distance. If not provided, distances will be printed to stdout in the same format.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
 
         /// FASTA file extension to look for when loading from a directory. Only used if loading from a directory and if reference and mask are provided (i.e., if FASTA files need to be reference compressed on the fly). Default is "fasta".
         #[arg(long, default_value = "fasta")]
@@ -111,6 +116,10 @@ enum Commands {
         #[arg(long, default_value_t = 20)]
         cutoff: usize,
 
+        /// Path to a file to store distances in using a space-separated file. Columns are sample1, sample2, distance. If not provided, distances will be printed to stdout in the same format.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+
         /// FASTA file extension to look for when loading from a directory. Only used if loading from a directory and if reference and mask are provided (i.e., if FASTA files need to be reference compressed on the fly). Default is "fasta".
         #[arg(long, short, default_value = "fasta")]
         fasta_extension: String,
@@ -130,7 +139,7 @@ enum Commands {
         reference: PathBuf,
 
         /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
-        mask: PathBuf,
+        mask: Option<PathBuf>,
 
         /// Paths to sample files. Either FASTA files or .fn6 files
         #[arg(long, short, num_args = 1..)]
@@ -171,7 +180,10 @@ fn main() {
             debug,
         } => {
             let reference = parse_reference(reference.as_ref());
-            let mask = parse_mask(&mask);
+            let mask = match mask {
+                Some(m) => parse_mask(&m),
+                None => Vec::new(),
+            };
             if debug {
                 eprintln!("Got reference of length {}", reference.len());
                 eprintln!("Got mask of length {}", mask.len());
@@ -213,7 +225,10 @@ fn main() {
         } => {
             let start = std::time::Instant::now();
             let reference = parse_reference(reference.as_ref());
-            let mask = parse_mask(&mask);
+            let mask = match mask {
+                Some(m) => parse_mask(&m),
+                None => Vec::new(),
+            };
 
             let reference_hash = sha256::digest(reference.as_bytes());
             let mask_hash = sha256::digest(
@@ -251,7 +266,9 @@ fn main() {
             let _ = sample_paths
                 .par_iter()
                 .map(|sample| {
-                    let output_path = output.as_ref().map(|dir| dir.join(sample.file_name().unwrap()).with_extension("fn6"));
+                    let output_path = output
+                        .as_ref()
+                        .map(|dir| dir.join(sample.file_name().unwrap()).with_extension("fn6"));
                     fn6::reference_compress(
                         sample,
                         &reference,
@@ -280,6 +297,7 @@ fn main() {
             fasta_extension,
             allow_fasta,
             debug,
+            output,
         } => {
             let mut sample_paths = Vec::new();
             let mut contains_fasta = false;
@@ -316,13 +334,16 @@ fn main() {
                 });
             }
 
-            if contains_fasta && (reference.is_none() || mask.is_none()) {
-                panic!("Reference and mask are required when providing FASTA files");
+            if contains_fasta && (reference.is_none()) {
+                panic!("Reference is required when providing FASTA files");
             }
             let (reference, mask, reference_hash, mask_hash) = match (reference, mask) {
-                (Some(r), Some(m)) => {
+                (Some(r), m) => {
                     let r = parse_reference(r.as_ref());
-                    let m = parse_mask(&m);
+                    let m = match m {
+                        Some(m) => parse_mask(&m),
+                        None => Vec::new(),
+                    };
                     let reference_hash = sha256::digest(r.as_bytes());
                     let mask_hash = sha256::digest(
                         m.iter()
@@ -343,6 +364,7 @@ fn main() {
                 &mask_hash,
                 &reference_hash,
                 cutoff,
+                output,
                 debug,
             );
         }
@@ -357,6 +379,7 @@ fn main() {
             fasta_extension,
             allow_fasta,
             debug,
+            output,
         } => {
             let mut contains_fasta = false;
             let mut existing_sample_paths = Vec::new();
@@ -440,13 +463,16 @@ fn main() {
                 return;
             }
 
-            if contains_fasta && (reference.is_none() || mask.is_none()) {
-                panic!("Reference and mask are required when providing FASTA files");
+            if contains_fasta && (reference.is_none()) {
+                panic!("Reference is required when providing FASTA files");
             }
             let (reference, mask, reference_hash, mask_hash) = match (reference, mask) {
-                (Some(r), Some(m)) => {
+                (Some(r), m) => {
                     let r = parse_reference(r.as_ref());
-                    let m = parse_mask(&m);
+                    let m = match m {
+                        Some(m) => parse_mask(&m),
+                        None => Vec::new(),
+                    };
                     let reference_hash = sha256::digest(r.as_bytes());
                     let mask_hash = sha256::digest(
                         m.iter()
@@ -468,6 +494,7 @@ fn main() {
                 &mask_hash,
                 &reference_hash,
                 cutoff,
+                output,
                 debug,
             );
         }
