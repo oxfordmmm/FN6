@@ -25,62 +25,6 @@ fn fn6(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Seemlessly load either a new fasta or an existing save.
-/// This is used by the CLI to allow users to either load existing .fn6 files or create new ones on the fly. If a .fn6 file is provided, it will be loaded and deserialized. If a .fn5 file is provided, it will be loaded and deserialized. If a FASTA file is provided, it will be processed and compressed into a Sample struct.
-/// All saves are then serialised to bytes with rkyv.
-fn load_save(
-    filepath: PathBuf,
-    reference: &str,
-    mask: Vec<usize>,
-    mask_hash: &str,
-    reference_hash: &str,
-) -> Vec<u8> {
-    if filepath.to_str().unwrap().to_owned().ends_with(".fn6") {
-        return std::fs::read(filepath).unwrap();
-    }
-    if filepath.to_str().unwrap().to_owned().ends_with(".fn5") {
-        return crate::sample::from_fn5(&filepath);
-    }
-    if reference.is_empty() {
-        panic!("Reference genome is required when loading FASTA files");
-    }
-    let s = crate::sample::Sample::new(&filepath, reference, &mask, mask_hash, reference_hash);
-    rkyv::to_bytes::<rkyv::rancor::Error>(&s).unwrap().to_vec()
-}
-
-/// Load a set of files into memory as byte vectors. This uses multithreading for performance.
-/// The byte vectors returned correspond to the `rkyv` serialized `sample::Sample` structs.
-///
-/// # Arguments
-/// - `filepaths`: A vector of paths to load. The file type is determined by the file extension. .fn6 files are expected to be `rkyv` serialized `sample::Sample` structs, while .fn5 files are expected to be in the old format and will be converted to `sample::Sample` structs and then serialized using `rkyv`. FASTA files will be processed and compressed into `sample::Sample` structs and then serialized using `rkyv`.
-/// - `reference`: The reference genome sequence as a string. This is only required if at least 1 FASTA file is input
-/// - `mask`: A list of positions in the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based. This is only required if at least 1 FASTA file is input.
-/// - `mask_hash`: A hash of the mask file. This is used for QC to ensure that the same mask is used for all samples. This is only required if at least 1 FASTA file is input.
-/// - `reference_hash`: A hash of the reference genome. This is used for QC to ensure that the same reference is used for all samples. This is only required if at least 1 FASTA file is input.
-///
-/// # Returns
-/// A vector of byte vectors, where each byte vector is the `rkyv` serialized representation of a `sample::Sample` struct. The order of the byte vectors corresponds to the order of the input filepaths.
-fn load_arch_saves(
-    filepaths: Vec<PathBuf>,
-    reference: &str,
-    mask: Vec<usize>,
-    mask_hash: &str,
-    reference_hash: &str,
-) -> Vec<Vec<u8>> {
-    filepaths
-        .par_iter()
-        .map(|sample_path| {
-            load_save(
-                sample_path.to_path_buf(),
-                reference,
-                mask.to_vec(),
-                mask_hash,
-                reference_hash,
-            )
-        })
-        .collect()
-}
-
 /// Load a set of files into memory as Sample objects. This uses multithreading for performance.
 ///
 /// # Arguments
@@ -103,10 +47,10 @@ fn load_samples(
     filepaths
         .par_iter()
         .map(|sample_path| {
-            let save = load_save(
-                sample_path.to_path_buf(),
+            let save = crate::load_save(
+                sample_path,
                 reference,
-                mask.to_vec(),
+                &mask,
                 mask_hash,
                 reference_hash,
             );
@@ -173,10 +117,10 @@ fn compute(
 ) -> Vec<(String, String, usize)> {
     // Load the saves
     let start_time = std::time::Instant::now();
-    let samples = load_arch_saves(
+    let samples = crate::load_arch_saves(
         filepaths.clone(),
         reference,
-        mask,
+        &mask,
         mask_hash,
         reference_hash,
     );
