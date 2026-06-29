@@ -18,11 +18,11 @@ enum Commands {
         /// Path to the reference genome FASTA file
         reference: PathBuf,
 
-        /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
-        mask: Option<PathBuf>,
-
         /// Path to the sample genome FASTA file
         sample: PathBuf,
+
+        /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
+        mask: Option<PathBuf>,
 
         /// ID for this sample
         #[arg(long)]

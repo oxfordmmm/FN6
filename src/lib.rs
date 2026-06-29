@@ -220,7 +220,7 @@ pub fn compute(
 
     if debug {
         eprintln!(
-            "Computed {} distances in {:.2?} ({:.2?}) per comparison",
+            "Computed {} distances in {:.2?} ({:.2?} per comparison)",
             n_comps,
             start_time.elapsed(),
             start_time.elapsed() / n_comps as u32
@@ -285,7 +285,7 @@ pub fn add_samples(
 
     if debug {
         eprintln!(
-            "Computed {} new distances in {:.2?} ({:.2?}) per comparison",
+            "Computed {} new distances in {:.2?} ({:.2?} per comparison)",
             n_comps,
             start_time.elapsed(),
             start_time.elapsed() / n_comps as u32
