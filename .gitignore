@@ -1,5 +1,9 @@
 /target
 
+**/__pycache__
+**/*.so
+uv.lock
+
 *.fasta
 *.txt
 *.fn6

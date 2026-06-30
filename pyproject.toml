@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "fn6"
+requires-python = " >=3.12,<3.13"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "License :: Other/Proprietary License"
+]
+description = "Fast, efficient and scalable SNP distance calculation from disk"
+readme = "README.md"
+license = "University of Oxford, see license file for details."
+license-files = ["LICENSE"]
+dynamic = ["version"]
+authors = [
+    { name = "Jeremy Westhead", email = "jeremy.westhead@ndm.ox.ac.uk" }
+]
+
+[project.urls]
+Source = "https://github.com/oxfordmmm/FN6"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+
+[project.optional-dependencies]
+tree = [
+    "biotite>=1.7.1",
+    "numpy",
+]
+
+[project.scripts]
+find-neighbour-to-tree = "fn6.find_neighbour_to_tree:main"
+compare-dists = "fn6.compare_dists:main"
