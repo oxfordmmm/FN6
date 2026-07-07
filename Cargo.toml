@@ -2,6 +2,8 @@
 name = "fn6"
 version = "0.1.0"
 edition = "2024"
+license-file = "LICENSE"
+license = "University of Oxford, see license file for details."
 
 [lib]
 name = "fn6"
