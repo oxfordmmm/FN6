@@ -16,7 +16,6 @@ classifiers = [
 description = "Fast, efficient and scalable SNP distance calculation from disk."
 readme = "README.md"
 license = "University of Oxford, see license file for details."
-license-files = ["LICENSE"]
 dynamic = ["version"]
 authors = [
     { name = "Jeremy Westhead", email = "jeremy.westhead@ndm.ox.ac.uk" }
@@ -35,5 +34,5 @@ tree = [
 ]
 
 [project.scripts]
-find-neighbour-to-tree = "fn6.find_neighbour_to_tree:main"
-compare-dists = "fn6.compare_dists:main"
+find-neighbour-to-tree = "python_scripts.find_neighbour_to_tree:main"
+compare-dists = "python_scripts.compare_dists:main"

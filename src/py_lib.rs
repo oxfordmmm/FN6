@@ -8,23 +8,6 @@ use crate::sample::ArchivedSample;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-#[pymodule]
-/// Fast, efficient SNP distance calculation from disk.
-/// Approximately 10x faster than FN5, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
-///
-/// This is not intended for comparing large numbers of samples due to performance issues with returning distances rather than writing to stdout. This is intended for computing smaller sets quickly, e.g within an API
-fn fn6(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<crate::sample::Sample>()?;
-    m.add_class::<crate::sample::SampleHeader>()?;
-
-    m.add_function(wrap_pyfunction!(load_samples, m)?)?;
-    m.add_function(wrap_pyfunction!(compute, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::sample::distance, m)?)?;
-    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
-
-    Ok(())
-}
-
 /// Load a set of files into memory as Sample objects. This uses multithreading for performance.
 ///
 /// # Arguments
@@ -37,7 +20,7 @@ fn fn6(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// # Returns
 /// A vector of Sample objects
 #[pyfunction(signature = (filepaths, reference = "", mask = Vec::new(), mask_hash = "", reference_hash = ""))]
-fn load_samples(
+pub fn load_samples(
     filepaths: Vec<PathBuf>,
     reference: &str,
     mask: Vec<usize>,
@@ -59,7 +42,7 @@ fn load_samples(
 /// # Arguments
 /// - `comparisons`: A vector of tuples, where each tuple contains two byte vectors. Each byte vector is the `rkyv` serialized representation of a `sample::Sample` struct. The order of the byte vectors corresponds to the order of the input filepaths used to load the samples.
 /// - `cutoff`: The SNP threshold for distance calculation. If the distance between two samples exceeds this threshold, the distance will not be reported. This is used to speed up distance calculations by allowing for early termination when the distance is large.
-fn get_distances(
+pub fn get_distances(
     comparisons: Vec<(&Vec<u8>, &Vec<u8>)>,
     cutoff: usize,
 ) -> Vec<(String, String, usize)> {
@@ -100,7 +83,7 @@ fn get_distances(
 /// - `cutoff`: The SNP threshold for distance calculation. If the distance between two samples exceeds this threshold, it will not be reported. This is used to speed up distance calculations by allowing for early termination when the distance is large.
 /// - `debug`: If true, print debug information about the loading and distance calculation process, including the number of samples loaded, the number of comparisons to be made, and the time taken for each step.
 #[pyfunction(signature = (filepaths, reference = "", mask = Vec::new(), mask_hash = "", reference_hash = "", cutoff = 20, debug = false))]
-fn compute(
+pub fn compute(
     filepaths: Vec<PathBuf>,
     reference: &str,
     mask: Vec<usize>,
