@@ -2,6 +2,7 @@
 name = "fn6"
 version = "0.1.0"
 edition = "2024"
+description = "Fast, efficient and scalable SNP distance calculation from disk."
 license-file = "LICENSE"
 license = "University of Oxford, see license file for details."
 
