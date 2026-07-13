@@ -13,7 +13,7 @@ classifiers = [
     "Intended Audience :: Healthcare Industry",
     "License :: Other/Proprietary License"
 ]
-description = "Fast, efficient and scalable SNP distance calculation from disk"
+description = "Fast, efficient and scalable SNP distance calculation from disk."
 readme = "README.md"
 license = "University of Oxford, see license file for details."
 license-files = ["LICENSE"]
