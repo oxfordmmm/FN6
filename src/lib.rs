@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::sample::ArchivedSample;
-use rayon::prelude::*;
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 pub mod py_lib;
 
