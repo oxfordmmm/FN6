@@ -34,7 +34,7 @@ jobs:
         id: docker_build
         uses: docker/build-push-action@v2
         with:
-          file: environments/Dockerfile
+          file: ./Dockerfile
           tags: |
             lhr.ocir.io/${{secrets.OCR_NAMESPACE}}/oxfordmmm/fn6:latest
             lhr.ocir.io/${{secrets.OCR_NAMESPACE}}/oxfordmmm/fn6:${{env.RELEASE_VERSION}}
