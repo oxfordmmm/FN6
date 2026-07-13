@@ -1,6 +1,6 @@
 [package]
 name = "fn6"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Fast, efficient and scalable SNP distance calculation from disk."
 license-file = "LICENSE"
@@ -8,7 +8,6 @@ readme="README.md"
 
 [lib]
 name = "fn6"
-path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -17,7 +16,6 @@ flate2 = "1.1.9"
 rayon = "1.11.0"
 rkyv = { version = "0.8.15", features = ["bytecheck"] }
 sha256 = "1.6.0"
-
 pyo3 = "0.28.3"
 
 [dev-dependencies]

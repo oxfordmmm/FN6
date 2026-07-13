@@ -9,6 +9,7 @@ use std::{
 
 use crate::sample::ArchivedSample;
 use rayon::prelude::*;
+use pyo3::prelude::*;
 
 pub mod py_lib;
 
@@ -16,6 +17,23 @@ pub mod sample;
 
 static MAX_COMPARISONS_IN_MEMORY: usize = 1_000_000;
 static MAX_DISTS_IN_MEMORY: usize = 1000;
+
+#[pymodule]
+/// Fast, efficient SNP distance calculation from disk.
+/// Approximately 10x faster than FN5, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
+///
+/// This is not intended for comparing large numbers of samples due to performance issues with returning distances rather than writing to stdout. This is intended for computing smaller sets quickly, e.g within an API
+fn fn6(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<crate::sample::Sample>()?;
+    m.add_class::<crate::sample::SampleHeader>()?;
+
+    m.add_function(wrap_pyfunction!(py_lib::load_samples, m)?)?;
+    m.add_function(wrap_pyfunction!(py_lib::compute, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::sample::distance, m)?)?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
+    Ok(())
+}
 
 /// Seemlessly load either a new fasta or an existing save.
 /// This is used by the CLI to allow users to either load existing .fn6 files or create new ones on the fly. If a .fn6 file is provided, it will be loaded and deserialized. If a .fn5 file is provided, it will be loaded and deserialized. If a FASTA file is provided, it will be processed and compressed into a Sample struct.
