@@ -26,7 +26,9 @@ RUN --mount=type=bind,source=src,target=src \
     cargo build --locked --release && \
     cp ./target/release/$APP_NAME /bin/fn6
 
-FROM ubuntu:latest AS final
+# For some reason `rev` is not a part of the util-linux package in >ubuntu:questing, so pin here for now
+# This is needed as part of the pipeline, but should be inconsequential to pin otherwise
+FROM ubuntu:questing AS final
 
 # Copy the executable from the "build" stage.
 COPY --from=build /bin/fn6 /bin/
