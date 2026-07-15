@@ -2,6 +2,7 @@
 //!
 //! Approximately 10x faster than FN5, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
 use std::{
+    ffi::OsStr,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
     sync::Mutex,
@@ -19,6 +20,7 @@ static MAX_COMPARISONS_IN_MEMORY: usize = 1_000_000;
 static MAX_DISTS_IN_MEMORY: usize = 1000;
 
 #[pymodule]
+#[cfg(not(tarpaulin_include))]
 /// Fast, efficient SNP distance calculation from disk.
 /// Approximately 10x faster than FN5, easier to use and maintain, and adds checking for matching reference and mask in FN6 saves, all while retaining interoperability with FN5 saves.
 ///
@@ -38,21 +40,25 @@ fn fn6(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// Seemlessly load either a new fasta or an existing save.
 /// This is used by the CLI to allow users to either load existing .fn6 files or create new ones on the fly. If a .fn6 file is provided, it will be loaded and deserialized. If a .fn5 file is provided, it will be loaded and deserialized. If a FASTA file is provided, it will be processed and compressed into a Sample struct.
 /// All saves are then serialised to bytes with rkyv.
-pub fn load_save(
+pub fn load_saves(
     filepath: &Path,
     reference: &str,
     mask: &[usize],
     mask_hash: &str,
     reference_hash: &str,
-) -> Vec<u8> {
+) -> Vec<Vec<u8>> {
     if filepath.to_str().unwrap().to_owned().ends_with(".fn6") {
-        return std::fs::read(filepath).unwrap();
+        return vec![std::fs::read(filepath).unwrap()];
     }
     if filepath.to_str().unwrap().to_owned().ends_with(".fn5") {
-        return sample::from_fn5(filepath);
+        return vec![sample::from_fn5(filepath)];
     }
-    let s = sample::Sample::new(filepath, reference, mask, mask_hash, reference_hash);
-    rkyv::to_bytes::<rkyv::rancor::Error>(&s).unwrap().to_vec()
+    let samples = sample::parse_fasta(filepath, reference, mask, mask_hash, reference_hash, true);
+
+    samples
+        .iter()
+        .map(|s| rkyv::to_bytes::<rkyv::rancor::Error>(s).unwrap().to_vec())
+        .collect()
 }
 
 /// Load a set of files into memory as byte vectors. This uses multithreading for performance.
@@ -76,14 +82,15 @@ pub fn load_arch_saves(
 ) -> Vec<Vec<u8>> {
     filepaths
         .par_iter()
-        .map(|sample_path| load_save(sample_path, reference, mask, mask_hash, reference_hash))
+        .map(|sample_path| load_saves(sample_path, reference, mask, mask_hash, reference_hash))
+        .flatten()
         .collect()
 }
 
 /// Reference compress a sample (parse into `sample::Sample`) and save it to disk if it passes QC.
 ///
 /// # Arguments
-/// - `filepath`: Path to the sample genome FASTA file
+/// - `filepath`: Path to the sample genome FASTA file. This does not support multi FASTA files.
 /// - `reference`: The reference genome sequence as a string. This is used for compression and distance calculations.
 /// - `mask`: A list of positions in the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based.
 /// - `mask_hash`: A hash of the mask file. This is used for QC to ensure that the same mask is used for all samples.
@@ -103,26 +110,64 @@ pub fn reference_compress(
     reference_hash: &str,
     id: Option<String>,
     output_path: Option<PathBuf>,
-) -> sample::Sample {
-    let mut s = sample::Sample::new(filepath, reference, mask, mask_hash, reference_hash);
-    if let Some(name) = id {
-        s.name = name;
-    }
-    let output = match output_path {
-        Some(path) => path,
-        None => {
-            let mut path = filepath.to_path_buf();
-            path.set_extension("fn6");
-            path
+) -> Vec<sample::Sample> {
+    let allow_multi_fasta = output_path.is_none() && id.is_none();
+
+    let mut samples = sample::parse_fasta(
+        filepath,
+        reference,
+        mask,
+        mask_hash,
+        reference_hash,
+        allow_multi_fasta,
+    );
+
+    if samples.is_empty() {
+        if output_path.is_some() {
+            panic!("Output path can only be specified for single sample FASTA files.");
         }
-    };
-    // Only save if qc is passed
-    if s.is_qc_passed {
-        let serialized = rkyv::to_bytes::<rkyv::rancor::Error>(&s).unwrap();
-        std::fs::write(output, serialized).unwrap();
+        if id.is_some() {
+            panic!("ID can only be specified for single sample FASTA files.");
+        }
+    }
+    let mut output = None;
+    if samples.len() == 1 {
+        if let Some(ref name) = id {
+            samples[0].name = name.clone();
+        }
+        output = Some(match output_path {
+            Some(path) => path,
+            None => {
+                let mut path = filepath.to_path_buf();
+                path.set_extension("fn6");
+                path
+            }
+        });
     }
 
-    s
+    for s in samples.iter_mut() {
+        // Only save if qc is passed
+        if s.is_qc_passed {
+            let res_output = if output.is_some() {
+                // Specifically set output, so use it
+                output.clone().unwrap()
+            } else {
+                // Multi FASTA file, so take input path, remove fasta extension,
+                // replacing with `<sample.name>.fn6`
+                let mut path = filepath.to_path_buf();
+                if path.extension() == Some(OsStr::new("gz")) {
+                    path.set_extension("");
+                }
+                path.set_extension(s.name.clone());
+                path.add_extension("fn6");
+                path
+            };
+            let serialized = rkyv::to_bytes::<rkyv::rancor::Error>(s).unwrap();
+            std::fs::write(res_output, serialized).unwrap();
+        }
+    }
+
+    samples
 }
 
 /// Given a set of comparisons to do, compute the distances and print them to stdout as they are computed. This uses multithreading for performance, and a mutex to ensure that the output is not interleaved.
@@ -358,7 +403,7 @@ mod tests {
     #[test]
     fn test_load_save() {
         // Test loading a non-existent file
-        assert_panics!(load_save(
+        assert_panics!(load_saves(
             &PathBuf::from("non_existent_file.fn6"),
             "ACGT",
             &[0],
@@ -367,7 +412,7 @@ mod tests {
         ));
 
         // Test loading a .fn5 file that doesn't exist
-        assert_panics!(load_save(
+        assert_panics!(load_saves(
             &PathBuf::from("non_existent_file.fn5"),
             "ACGT",
             &[0],
@@ -376,7 +421,7 @@ mod tests {
         ));
 
         // Test loading a FASTA file that doesn't exist
-        assert_panics!(load_save(
+        assert_panics!(load_saves(
             &PathBuf::from("non_existent_file.fasta"),
             "ACGT",
             &[0],
@@ -394,27 +439,27 @@ mod tests {
                 .collect::<String>()
                 .as_bytes(),
         );
-        let b_fasta = load_save(
+        let b_fasta = &load_saves(
             &PathBuf::from("tests/cases/dummy/1.fasta"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
-        let b_fn5 = load_save(
+        )[0];
+        let b_fn5 = &load_saves(
             &PathBuf::from("tests/cases/dummy/fn5_saves/uuid1.fn5"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
-        let b_fn6 = load_save(
+        )[0];
+        let b_fn6 = &load_saves(
             &PathBuf::from("tests/cases/dummy/fn6_saves/1.fn6"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
+        )[0];
         // Deserialize the saves before comparison for simplicity
         let s_fasta = rkyv::deserialize::<sample::Sample, rkyv::rancor::Error>(
             rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&b_fasta[..]).unwrap(),
@@ -437,14 +482,14 @@ mod tests {
         assert_eq!(s_fn5, s_fn6);
 
         // Incorrect or missing references should only cause issues loading from fasta file
-        assert_panics!(load_save(
+        assert_panics!(load_saves(
             &PathBuf::from("tests/cases/dummy/1.fasta"),
             "ACGT", // Wrong reference
             &mask,
             &mask_hash,
             &reference_hash
         ));
-        assert_panics!(load_save(
+        assert_panics!(load_saves(
             &PathBuf::from("tests/cases/dummy/1.fasta"),
             "", // No reference
             &mask,
@@ -452,14 +497,14 @@ mod tests {
             &reference_hash
         ));
         // Not from fn5/6 files, so should panic if reference or mask don't match
-        load_save(
+        load_saves(
             &PathBuf::from("tests/cases/dummy/fn5_saves/uuid1.fn5"),
             "",
             &[],
             "",
             "",
         );
-        load_save(
+        load_saves(
             &PathBuf::from("tests/cases/dummy/fn6_saves/1.fn6"),
             "",
             &[],
@@ -468,7 +513,7 @@ mod tests {
         );
 
         // Parsing from fasta with the correct reference but no mask should be fine too
-        load_save(
+        load_saves(
             &PathBuf::from("tests/cases/dummy/1.fasta"),
             &reference,
             &[],
@@ -479,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_load_arch_saves() {
-        // Should be identical to load_save but with multiple files, so we can just check that the outputs are the same for both functions
+        // Should be identical to load_saves but with multiple files, so we can just check that the outputs are the same for both functions
         let reference = sample::parse_reference(Path::new("tests/cases/dummy/reference.fasta"));
         let mask = sample::parse_mask(Path::new("tests/cases/dummy/mask.txt"));
         let reference_hash = sha256::digest(reference.as_bytes());
@@ -540,7 +585,7 @@ mod tests {
         if output_path.exists() {
             std::fs::remove_file(&output_path).unwrap();
         }
-        let s = reference_compress(
+        let s = &reference_compress(
             &PathBuf::from("tests/cases/dummy/1.fasta"),
             &reference,
             &mask,
@@ -548,7 +593,7 @@ mod tests {
             &reference_hash,
             Some("test_sample".to_string()),
             Some(output_path.clone()),
-        );
+        )[0];
         assert!(s.is_qc_passed);
         assert!(output_path.exists());
 
@@ -557,7 +602,7 @@ mod tests {
         if output_path2.exists() {
             std::fs::remove_file(&output_path2).unwrap();
         }
-        let s = reference_compress(
+        let s = &reference_compress(
             &PathBuf::from("tests/cases/dummy/qc-fail.fasta"),
             &reference,
             &mask,
@@ -565,9 +610,95 @@ mod tests {
             &reference_hash,
             None,
             None,
-        );
+        )[0];
         assert!(!s.is_qc_passed);
         assert!(!output_path2.exists());
+    }
+
+    #[test]
+    fn test_reference_compress_multi() {
+        let reference = sample::parse_reference(Path::new("tests/cases/dummy/reference.fasta"));
+        let mask = sample::parse_mask(Path::new("tests/cases/dummy/mask.txt"));
+        let reference_hash = sha256::digest(reference.as_bytes());
+        let mask_hash = sha256::digest(
+            mask.iter()
+                .map(|x| x.to_string())
+                .collect::<String>()
+                .as_bytes(),
+        );
+
+        let output_path = PathBuf::from("tests/output/dummy-1.fn6");
+        if output_path.exists() {
+            std::fs::remove_file(&output_path).unwrap();
+        }
+
+        let samples = reference_compress(
+            &PathBuf::from("tests/cases/dummy/1_2.multi.fasta"),
+            &reference,
+            &mask,
+            &mask_hash,
+            &reference_hash,
+            None,
+            None,
+        );
+        for s in samples.iter() {
+            assert!(s.is_qc_passed);
+            let out_path = PathBuf::from(format!("tests/cases/dummy/1_2.multi.{}.fn6", s.name));
+            assert!(out_path.exists());
+            // Clean up as we go...
+            std::fs::remove_file(&out_path).unwrap();
+        }
+
+        // Gzipped alternative should match
+        let samples = reference_compress(
+            &PathBuf::from("tests/cases/dummy/1_2.multi.fasta.gz"),
+            &reference,
+            &mask,
+            &mask_hash,
+            &reference_hash,
+            None,
+            None,
+        );
+        for s in samples.iter() {
+            assert!(s.is_qc_passed);
+            let out_path = PathBuf::from(format!("tests/cases/dummy/1_2.multi.{}.fn6", s.name));
+            assert!(out_path.exists());
+            // Clean up as we go...
+            std::fs::remove_file(&out_path).unwrap();
+        }
+
+        // If passing an output path to a multi-sample fasta, it should panic
+        assert_panics!(reference_compress(
+            &PathBuf::from("tests/cases/dummy/1_2.multi.fasta"),
+            &reference,
+            &mask,
+            &mask_hash,
+            &reference_hash,
+            None,
+            Some(output_path.clone()),
+        ));
+
+        // If passing a name to a multi-sample fasta, it should panic
+        assert_panics!(reference_compress(
+            &PathBuf::from("tests/cases/dummy/1_2.multi.fasta"),
+            &reference,
+            &mask,
+            &mask_hash,
+            &reference_hash,
+            Some("test_sample".to_string()),
+            None,
+        ));
+
+        // Similarly, passing both should panic
+        assert_panics!(reference_compress(
+            &PathBuf::from("tests/cases/dummy/1_2.multi.fasta"),
+            &reference,
+            &mask,
+            &mask_hash,
+            &reference_hash,
+            Some("test_sample".to_string()),
+            Some(output_path.clone()),
+        ));
     }
 
     #[test]
@@ -581,38 +712,38 @@ mod tests {
                 .collect::<String>()
                 .as_bytes(),
         );
-        let b_fasta = load_save(
+        let b_fasta = &load_saves(
             &PathBuf::from("tests/cases/dummy/1.fasta"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
-        let b_fn5 = load_save(
+        )[0];
+        let b_fn5 = &load_saves(
             &PathBuf::from("tests/cases/dummy/fn5_saves/uuid1.fn5"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
-        let b_fn6 = load_save(
+        )[0];
+        let b_fn6 = &load_saves(
             &PathBuf::from("tests/cases/dummy/fn6_saves/1.fn6"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
-        let b2_fn6 = load_save(
+        )[0];
+        let b2_fn6 = &load_saves(
             &PathBuf::from("tests/cases/dummy/fn6_saves/2.fn6"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
+        )[0];
 
         // We know these samples are identical, so distance should be 0
         get_distances(
-            vec![(&b_fasta, &b_fn5), (&b_fasta, &b_fn6), (&b_fn5, &b_fn6)],
+            vec![(b_fasta, b_fn5), (b_fasta, b_fn6), (b_fn5, b_fn6)],
             10,
             Some(PathBuf::from("tests/output/dummy_distances.txt")),
         );
@@ -622,7 +753,7 @@ mod tests {
 
         // The 2.fn6 sample has a SNP at position 0, so distance should be 1 to everything else
         get_distances(
-            vec![(&b_fasta, &b2_fn6), (&b_fn5, &b2_fn6), (&b_fn6, &b2_fn6)],
+            vec![(b_fasta, b2_fn6), (b_fn5, b2_fn6), (b_fn6, b2_fn6)],
             10,
             Some(PathBuf::from("tests/output/dummy_distances2.txt")),
         );

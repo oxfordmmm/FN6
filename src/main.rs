@@ -196,7 +196,8 @@ fn main() {
                     .collect::<String>()
                     .as_bytes(),
             );
-            let s = fn6::reference_compress(
+
+            let samples = fn6::reference_compress(
                 &sample,
                 &reference,
                 &mask,
@@ -205,12 +206,15 @@ fn main() {
                 id,
                 output,
             );
-            // Print the name of the sample and whether it passed QC or not.
-            // This enables it to be picked up as/when required by other tools in a pipeline.
-            if s.is_qc_passed {
-                println!("{}", s.name);
-            } else {
-                println!("||QC_FAIL: {}||", s.name);
+
+            for s in samples.iter() {
+                // Print the name of the sample and whether it passed QC or not.
+                // This enables it to be picked up as/when required by other tools in a pipeline.
+                if s.is_qc_passed {
+                    println!("{}", s.name);
+                } else {
+                    println!("||QC_FAIL: {}||", s.name);
+                }
             }
         }
         Commands::BulkCompress {

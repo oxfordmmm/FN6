@@ -30,10 +30,18 @@ pub fn load_samples(
     filepaths
         .par_iter()
         .map(|sample_path| {
-            let save = crate::load_save(sample_path, reference, &mask, mask_hash, reference_hash);
-            let arch_save = rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&save[..]).unwrap();
-            rkyv::deserialize::<crate::sample::Sample, rkyv::rancor::Error>(arch_save).unwrap()
+            let saves = crate::load_saves(sample_path, reference, &mask, mask_hash, reference_hash);
+            saves
+                .iter()
+                .map(|save| {
+                    let arch_save =
+                        rkyv::access::<ArchivedSample, rkyv::rancor::Error>(&save[..]).unwrap();
+                    rkyv::deserialize::<crate::sample::Sample, rkyv::rancor::Error>(arch_save)
+                        .unwrap()
+                })
+                .collect::<Vec<crate::sample::Sample>>()
         })
+        .flatten()
         .collect()
 }
 
