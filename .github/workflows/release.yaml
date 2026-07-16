@@ -83,6 +83,9 @@ jobs:
           args: --release --out dist --find-interpreter --all-features
           sccache: 'true'
           manylinux: auto
+        env:
+          # abi3-py3xx built with whatever Python the runner has
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -114,6 +117,9 @@ jobs:
           args: --release --out dist --find-interpreter --all-features
           sccache: 'true'
           manylinux: musllinux_1_2
+        env:
+          # abi3-py3xx built with whatever Python the runner has
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -139,6 +145,9 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --all-features
           sccache: 'true'
+        env:
+          # abi3-py3xx built with whatever Python the runner has
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -163,6 +172,9 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --all-features
           sccache: 'true'
+        env:
+          # abi3-py3xx built with whatever Python the runner has
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:

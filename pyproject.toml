@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "fn6"
-requires-python = " >=3.12,<3.13"
+requires-python = " >=3.12,<3.15"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -26,13 +26,3 @@ Source = "https://github.com/oxfordmmm/FN6"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-
-[project.optional-dependencies]
-tree = [
-    "biotite>=1.7.1",
-    "numpy",
-]
-
-[project.scripts]
-find-neighbour-to-tree = "python_scripts.find_neighbour_to_tree:main"
-compare-dists = "python_scripts.compare_dists:main"

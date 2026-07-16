@@ -16,7 +16,7 @@ flate2 = "1.1.9"
 rayon = "1.11.0"
 rkyv = { version = "0.8.15", features = ["bytecheck"] }
 sha256 = "1.6.0"
-pyo3 = "0.28.3"
+pyo3 = { version = "0.29", features = ["abi3-py310", "abi3-py311", "abi3-py312", "abi3-py313", "abi3-py314"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.0"
