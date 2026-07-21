@@ -216,108 +216,171 @@ pub fn parse_mask(filepath: &Path) -> Vec<usize> {
     mask
 }
 
-impl Sample {
-    /// Instanciate a new sample from a FASTA file, given the reference and mask to compare against.
-    /// The sample will be parsed and the positions of the A, C, G, T and N bases that differ from the reference and are not masked will be stored in the respective fields of the struct.
-    ///
-    /// # Arguments
-    /// - `filepath` - Path to the sample FASTA file
-    /// - `reference` - String of the reference genome to compare against
-    /// - `mask` - Vector of positions to be masked (i.e., ignored) during the analysis
-    /// - `mask_hash` - SHA256 hash of the mask, for storing in the header
-    /// - `reference_hash` - SHA256 hash of the reference, for storing in the header
-    ///
-    /// # Returns
-    /// - Sample struct containing the parsed data from the FASTA file and the metadata in the header
-    pub fn new(
-        filepath: &Path,
-        reference: &str,
-        mask: &[usize],
-        mask_hash: &str,
-        reference_hash: &str,
-    ) -> Sample {
-        let reader = get_reader(filepath.to_str().unwrap());
-        let mut name = String::new();
-        let mut a = Vec::new();
-        let mut c = Vec::new();
-        let mut g = Vec::new();
-        let mut t = Vec::new();
-        let mut n = Vec::new();
+fn parse_name(line: String) -> String {
+    // This is a bit hacky but allows for some variation in the header format
+    // `>some description here|chr1`, `>chr1 description` and `>chr1` will all work,
+    // and the sample name will be `chr1` in both cases
+    line.split("|")
+        .last()
+        .unwrap()
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .first()
+        .unwrap()
+        .trim()
+        .replace(">", "")
+}
 
-        let mut char_counter = 0;
-        for line in reader.lines().map_while(Result::ok) {
-            if !line.is_empty() {
-                if name.is_empty() && line.starts_with(">") {
-                    // This is a bit hacky but allows for some variation in the header format
-                    // `>some description here|chr1`, `>chr1 description` and `>chr1` will all work, and the sample name will be `chr1` in both cases
-                    name = line
-                        .split("|")
-                        .last()
-                        .unwrap()
-                        .split_whitespace()
-                        .collect::<Vec<&str>>()
-                        .first()
-                        .unwrap()
-                        .trim()
-                        .replace(">", "");
-                    continue;
-                } else if line.starts_with(">") {
-                    panic!(
-                        "Multi-FASTA files are not supported; file {} contains more than one header",
-                        filepath.display()
-                    );
-                } else if line.starts_with(";") {
-                    continue;
+// Type alias to make it easier to pass around the nucleotide vectors
+type Nucleotides = (Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>);
+
+fn add_sample(
+    header: SampleHeader,
+    bases: Nucleotides,
+    name: String,
+    reference: &str,
+    char_counter: usize,
+    filepath: &Path,
+    samples: &mut Vec<Sample>,
+) {
+    if char_counter < reference.len() {
+        panic!(
+            "Sample {} is shorter than the reference genome; cannot compare",
+            filepath.display()
+        );
+    }
+    if name.is_empty() {
+        panic!(
+            "Sample {} does not contain a valid header; cannot parse",
+            filepath.display()
+        );
+    }
+    let (a, c, g, t, n) = bases;
+    let is_qc_passed = (n.len() as f64 / reference.len() as f64) < 0.2;
+    let sample = Sample {
+        header,
+        a,
+        c,
+        g,
+        t,
+        n,
+        name,
+        is_qc_passed,
+        is_fn5: false,
+    };
+    samples.push(sample);
+}
+
+/// Instanciate sample(s) from a FASTA file, given the reference and mask to compare against.
+/// The sample(s) will be parsed and the positions of the A, C, G, T and N bases that differ from the reference and are not masked will be stored in the respective fields of the struct.
+///
+/// # Arguments
+/// - `filepath` - Path to the FASTA file
+/// - `reference` - String of the reference genome to compare against
+/// - `mask` - Vector of positions to be masked (i.e., ignored) during the analysis
+/// - `mask_hash` - SHA256 hash of the mask, for storing in the header
+/// - `reference_hash` - SHA256 hash of the reference, for storing in the header
+///
+/// # Returns
+/// - Sample struct containing the parsed data from the FASTA file and the metadata in the header
+pub fn parse_fasta(
+    filepath: &Path,
+    reference: &str,
+    mask: &[usize],
+    mask_hash: &str,
+    reference_hash: &str,
+    allow_multi_fasta: bool,
+) -> Vec<Sample> {
+    let reader = get_reader(filepath.to_str().unwrap());
+
+    let mut samples = Vec::new();
+
+    let header = SampleHeader {
+        reference_hash: reference_hash.to_string(),
+        mask_hash: mask_hash.to_string(),
+        version: "1.0".to_string(),
+    };
+
+    let mut name = String::new();
+    let mut a = Vec::new();
+    let mut c = Vec::new();
+    let mut g = Vec::new();
+    let mut t = Vec::new();
+    let mut n = Vec::new();
+
+    let mut char_counter = 0;
+    for line in reader.lines().map_while(Result::ok) {
+        if !line.is_empty() {
+            if line.starts_with(">") {
+                if name.is_empty() {
+                    name = parse_name(line);
                 } else {
-                    for ch in line.chars() {
-                        if reference.len() <= char_counter {
-                            panic!(
-                                "Sample {} is longer than the reference genome; cannot compare",
-                                filepath.display()
-                            );
-                        }
-                        if !(ch as u8 == reference.as_bytes()[char_counter]
-                            || mask.binary_search(&char_counter).is_ok())
-                        {
-                            match ch {
-                                'A' | 'a' => a.push(char_counter),
-                                'C' | 'c' => c.push(char_counter),
-                                'G' | 'g' => g.push(char_counter),
-                                'T' | 't' => t.push(char_counter),
-                                _ => n.push(char_counter),
-                            }
-                        }
-                        char_counter += 1;
+                    if !allow_multi_fasta {
+                        // We have a multi fasta, but no allowance for it, so we need to catch and return
+                        // So complain here, then return nothing (as all valid fasta files should have >= 1 sample)
+                        // This allows for returning specific error messages to the user depending on why we aren't allowing multis here,
+                        // rather than panicking and crashing the program
+                        eprintln!(
+                            "FASTA file {} contains more than one header. Only FASTA files of a single contig are allowed.",
+                            filepath.display()
+                        );
+                        return Vec::new();
                     }
+                    add_sample(
+                        header.clone(),
+                        (a.clone(), c.clone(), g.clone(), t.clone(), n.clone()),
+                        name.clone(),
+                        reference,
+                        char_counter,
+                        filepath,
+                        &mut samples,
+                    );
+                    name = parse_name(line);
+                    a.clear();
+                    c.clear();
+                    g.clear();
+                    t.clear();
+                    n.clear();
+                    char_counter = 0;
+                }
+            } else if line.starts_with(";") {
+                continue;
+            } else {
+                for ch in line.chars() {
+                    if reference.len() <= char_counter {
+                        panic!(
+                            "Sample {} is longer than the reference genome; cannot compare",
+                            filepath.display()
+                        );
+                    }
+                    if !(ch as u8 == reference.as_bytes()[char_counter]
+                        || mask.binary_search(&char_counter).is_ok())
+                    {
+                        match ch {
+                            'A' | 'a' => a.push(char_counter),
+                            'C' | 'c' => c.push(char_counter),
+                            'G' | 'g' => g.push(char_counter),
+                            'T' | 't' => t.push(char_counter),
+                            _ => n.push(char_counter),
+                        }
+                    }
+                    char_counter += 1;
                 }
             }
         }
-        // Technically these should be sorted for free given everything is incrementing
-        // But double check for sanity as this should only be done once
-        a.sort_unstable();
-        c.sort_unstable();
-        g.sort_unstable();
-        t.sort_unstable();
-        n.sort_unstable();
-
-        Sample {
-            // Metadata about the sample's save
-            // Allows for checking compatibility of samples for comparison
-            header: SampleHeader {
-                reference_hash: reference_hash.to_string(),
-                mask_hash: mask_hash.to_string(),
-                version: "1.0".to_string(),
-            },
-            name,
-            is_qc_passed: (n.len() as f64 / reference.len() as f64) < 0.2,
-            is_fn5: false,
-            a,
-            c,
-            g,
-            t,
-            n,
-        }
     }
+
+    add_sample(
+        header,
+        (a, c, g, t, n),
+        name,
+        reference,
+        char_counter,
+        filepath,
+        &mut samples,
+    );
+
+    samples
 }
 
 /// Parse a given FN5 file to extract the sample data and convert it to the new format.
@@ -805,24 +868,53 @@ mod tests {
                 .collect::<String>()
                 .as_bytes(),
         );
-        let sample1 = Sample::new(
+        let sample1 = &parse_fasta(
             Path::new("tests/cases/dummy/1.fasta"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
-        let sample2 = Sample::new(
+            true,
+        )[0];
+        let sample2 = &parse_fasta(
             Path::new("tests/cases/dummy/2.fasta"),
             &reference,
             &mask,
             &mask_hash,
             &reference_hash,
-        );
+            true,
+        )[0];
 
         assert_eq!(sample1.name, "uuid1".to_string());
         assert_eq!(sample2.name, "uuid2".to_string());
-        assert_eq!(distance(&sample1, &sample2, 10), Some(1));
+        assert_eq!(distance(sample1, sample2, 10), Some(1));
+    }
+
+    #[test]
+    fn test_from_sample_multi() {
+        let reference = parse_reference(Path::new("tests/cases/dummy/reference.fasta"));
+        let mask = parse_mask(Path::new("tests/cases/dummy/mask.txt"));
+        let reference_hash = sha256::digest(reference.as_bytes());
+        let mask_hash = sha256::digest(
+            mask.iter()
+                .map(|x| x.to_string())
+                .collect::<String>()
+                .as_bytes(),
+        );
+        let samples = parse_fasta(
+            Path::new("tests/cases/dummy/1_2.multi.fasta"),
+            &reference,
+            &mask,
+            &mask_hash,
+            &reference_hash,
+            true,
+        );
+        let sample1 = &samples[0];
+        let sample2 = &samples[1];
+
+        assert_eq!(sample1.name, "uuid1".to_string());
+        assert_eq!(sample2.name, "uuid2".to_string());
+        assert_eq!(distance(sample1, sample2, 10), Some(1));
     }
 
     #[test]

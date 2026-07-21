@@ -154,25 +154,3 @@ For simplicity, testing is based on a dummy genome with 80 bases. This allows fo
 ```bash
 cargo test
 ```
-
-## Tree building
-Optionally included in the Python package is code to produce a [neighbour joining](https://pubmed.ncbi.nlm.nih.gov/3447015/) phylogenetic tree in newick format. This has a few requirements:
-* A minimum of 4 samples within the comparison
-* Distances are computed with no SNP cutoff
-
-Example:
-```bash
-# Optional virtual environment
-python -m venv env
-source env/bin/activate
-
-# Install fn6, both as a rust CLI tool and a python library
-cargo install fn6
-pip install "fn6[tree]"
-
-# Create a table of distances with an arbitrarily high cutoff
-fn6 compute -d path/to/some/samples -r path/to/a/reference -m path/to/a/mask --cutoff 9999999 > your-distances.txt
-
-# Build a tree
-find-neighbour-to-tree --input your-distances.txt --output your-tree.nwk
-```
