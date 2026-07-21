@@ -90,7 +90,7 @@ pub fn load_arch_saves(
 /// Reference compress a sample (parse into `sample::Sample`) and save it to disk if it passes QC.
 ///
 /// # Arguments
-/// - `filepath`: Path to the sample genome FASTA file. This does not support multi FASTA files.
+/// - `filepath`: Path to the sample genome FASTA file
 /// - `reference`: The reference genome sequence as a string. This is used for compression and distance calculations.
 /// - `mask`: A list of positions in the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based.
 /// - `mask_hash`: A hash of the mask file. This is used for QC to ensure that the same mask is used for all samples.
