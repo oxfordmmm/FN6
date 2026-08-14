@@ -2,6 +2,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use counter::Counter;
 use fn6::sample::{parse_mask, parse_reference};
 use rayon::prelude::*;
 
@@ -478,17 +479,17 @@ fn main() {
                 &mask_hash,
                 &reference_hash,
             );
-            let mut n_positions = Vec::new();
+            let mut n_positions: Counter<u32> = Counter::new();
             for bin_sample in samples.iter() {
                 let sample = rkyv::access::<fn6::sample::ArchivedSample, rkyv::rancor::Error>(&bin_sample[..]).unwrap();
-                for n in sample.n.iter() {
-                    n_positions.push(n.to_native());
-                }
-                n_positions.sort_unstable();
-                n_positions.dedup();
+                
+                n_positions += sample.n.iter().map(|n| n.to_native()).collect::<Vec<u32>>();
             }
-            for n in n_positions.iter() {
-                println!("{}", n);
+
+            for (n, count) in n_positions {
+                if count as f32 >= samples.len() as f32 * 0.15 {
+                    println!("{}", n);
+                }
             }
 
 
