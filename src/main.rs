@@ -80,6 +80,38 @@ enum Commands {
         debug: bool,
     },
 
+    /// Find combined N positions
+    ComputeNPositions {
+        /// Path to the reference genome FASTA file.
+        /// Only required if >=1 of the samples specified are fasta files
+        #[arg(long, short)]
+        reference: Option<PathBuf>,
+
+        /// Path to the mask file. The mask file is a text file containing the positions of the reference genome that should be masked (i.e., ignored) during the analysis. The positions are 0-based and should be separated by newlines.
+        /// Only required if >=1 of the samples specified are fasta files
+        #[arg(long, short)]
+        mask: Option<PathBuf>,
+
+        /// Paths to sample files. Either .fn6, .fn5 or FASTA files.
+        /// If FASTA files are provided, the `allow-fasta` flag must also be used. They will then be reference compressed on the fly (using the provided reference and mask) before distance computation.
+        #[arg(long, short, num_args = 1..)]
+        samples: Option<Vec<PathBuf>>,
+
+        /// Directory to load from. Either .fn6, .fn5 or FASTA files.
+        /// If FASTA files are provided, the `allow-fasta` flag must also be used. They will then be reference compressed on the fly (using the provided reference and mask) before distance computation.
+        #[arg(long, short)]
+        directory: Option<PathBuf>,
+
+        /// FASTA file extension to look for when loading from a directory. Only used if loading from a directory and if reference and mask are provided (i.e., if FASTA files need to be reference compressed on the fly). Default is "fasta".
+        #[arg(long, default_value = "fasta")]
+        fasta_extension: String,
+
+        /// Whether to enable computation from FASTAs. It is recommended to pre-cache the reference compressed versions of the new samples to speed up computation.
+        #[arg(long, default_value_t = false)]
+        allow_fasta: bool,
+
+    },
+
     /// Add some samples to existing samples. Only computes the extra distances required rather than all pairwise distances.
     AddSamples {
         /// Path to the reference genome FASTA file.
@@ -371,6 +403,95 @@ fn main() {
                 output,
                 debug,
             );
+        }
+        Commands::ComputeNPositions {
+            samples,
+            directory,
+            reference,
+            mask,
+            fasta_extension,
+            allow_fasta,
+        } => {
+            let mut sample_paths = Vec::new();
+            let mut contains_fasta = false;
+            if let Some(samples) = samples {
+                sample_paths.extend(samples);
+            }
+            if let Some(dir) = directory {
+                for entry in std::fs::read_dir(dir).unwrap() {
+                    let entry = entry.unwrap();
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("fn6")
+                        || path.extension().and_then(|s| s.to_str()) == Some("fn5")
+                    {
+                        sample_paths.push(path);
+                    } else if allow_fasta
+                        && path.extension().and_then(|s| s.to_str()) == Some(&fasta_extension)
+                    {
+                        contains_fasta = true;
+                        sample_paths.push(path);
+                    }
+                }
+            }
+
+            if sample_paths.is_empty() {
+                eprintln!("No samples provided for distance computation");
+                return;
+            }
+
+            if !allow_fasta {
+                // Fastas aren't allowed so double check we haven't picked any up
+                sample_paths.retain(|path| {
+                    path.extension().and_then(|s| s.to_str()) == Some("fn6")
+                        || path.extension().and_then(|s| s.to_str()) == Some("fn5")
+                });
+            }
+
+            if contains_fasta && (reference.is_none()) {
+                panic!("Reference is required when providing FASTA files");
+            }
+            let (reference, mask, reference_hash, mask_hash) = match (reference, mask) {
+                (Some(r), m) => {
+                    let r = parse_reference(r.as_ref());
+                    let m = match m {
+                        Some(m) => parse_mask(&m),
+                        None => Vec::new(),
+                    };
+                    let reference_hash = sha256::digest(r.as_bytes());
+                    let mask_hash = sha256::digest(
+                        m.iter()
+                            .map(|x| x.to_string())
+                            .collect::<String>()
+                            .as_bytes(),
+                    );
+                    (r, m, reference_hash, mask_hash)
+                }
+                (None, None) => (String::new(), Vec::new(), String::new(), String::new()),
+                _ => panic!("Both reference and mask must be provided together"),
+            };
+
+            // Load the saves
+            let samples = fn6::load_arch_saves(
+                sample_paths.clone(),
+                &reference,
+                &mask,
+                &mask_hash,
+                &reference_hash,
+            );
+            let mut n_positions = Vec::new();
+            for bin_sample in samples.iter() {
+                let sample = rkyv::access::<fn6::sample::ArchivedSample, rkyv::rancor::Error>(&bin_sample[..]).unwrap();
+                for n in sample.n.iter() {
+                    n_positions.push(n.to_native());
+                }
+                n_positions.sort_unstable();
+                n_positions.dedup();
+            }
+            for n in n_positions.iter() {
+                println!("{}", n);
+            }
+
+
         }
         Commands::AddSamples {
             existing_samples,
