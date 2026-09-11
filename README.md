@@ -9,6 +9,7 @@ FN5 reworked into Rust. Approximately 10x faster, easier to use and maintain, an
 `cargo`, the Rust package manager. Recommended installation can be found [here](https://rustup.rs/)
 
 ### CLI installation
+> You don't need to clone this repository, but if you're working on TB then you will probably want to make a copy of `masquerade_std_tb_plus.mask` and it might be a convenient place from which to obtain `NC_000962.3.fasta`.
 ```bash
 cargo install fn6
 ```
