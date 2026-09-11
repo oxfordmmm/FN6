@@ -27,7 +27,7 @@ As SNP distances become decreasingly useful for outbreak detection as they incre
 
 For M.Tuberculosis, the evolution rate is roughly 1 SNP per year, so transmission networks often look at SNP thresholds of 3, 6, or 12 SNPs.
 
-By default, FN6 uses a cut off of 20 SNPs. This can be controlled with the `--cutoff` argument. To remove the cutoff, set this arbitrarily high; e.g `--cutoff 99999999`
+By default, FN6 uses a cut off of 20 SNPs. This can be controlled with the `--cutoff` argument. To remove the cutoff, set this arbitrarily high; e.g `--cutoff 99999999`. This can be useful for things such as building a neighbour joining tree.
 
 
 
