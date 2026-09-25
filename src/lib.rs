@@ -9,6 +9,7 @@ use std::{
 };
 
 use crate::sample::ArchivedSample;
+use flate2::write::GzEncoder;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -170,6 +171,24 @@ pub fn reference_compress(
     samples
 }
 
+fn get_writer(output: Option<PathBuf>) -> Mutex<Box<dyn Write + Send>> {
+    let output: Mutex<Box<dyn Write + Send>> = match output {
+        Some(path) => {
+            let writer = BufWriter::new(std::fs::File::create(path.clone()).unwrap());
+            if path.extension() == Some(OsStr::new("gz")) {
+                Mutex::new(Box::new(GzEncoder::new(
+                    writer,
+                    flate2::Compression::default(),
+                )))
+            } else {
+                Mutex::new(Box::new(writer))
+            }
+        }
+        None => Mutex::new(Box::new(BufWriter::new(std::io::stdout()))),
+    };
+    output
+}
+
 /// Given a set of comparisons to do, compute the distances and print them to stdout as they are computed. This uses multithreading for performance, and a mutex to ensure that the output is not interleaved.
 ///
 /// # Arguments
@@ -257,13 +276,7 @@ pub fn compute(
             start_time.elapsed()
         );
     }
-
-    let output: Mutex<Box<dyn Write + Send>> = match output {
-        Some(path) => Mutex::new(Box::new(BufWriter::new(
-            std::fs::File::create(path).unwrap(),
-        ))),
-        None => Mutex::new(Box::new(BufWriter::new(std::io::stdout()))),
-    };
+    let output = get_writer(output);
 
     // Figure out what comparisons we need to do
     let mut n_comps: u64 = 0;
@@ -319,12 +332,7 @@ pub fn add_samples(
     let existing_samples = load_arch_saves(existing, reference, mask, mask_hash, reference_hash);
     let new_samples = load_arch_saves(new_samples, reference, mask, mask_hash, reference_hash);
 
-    let output: Mutex<Box<dyn Write + Send>> = match output {
-        Some(path) => Mutex::new(Box::new(BufWriter::new(
-            std::fs::File::create(path).unwrap(),
-        ))),
-        None => Mutex::new(Box::new(BufWriter::new(std::io::stdout()))),
-    };
+    let output = get_writer(output);
 
     let mut comparisons: Vec<(&Vec<u8>, &Vec<u8>)> = Vec::new();
     let mut n_comps: u64 = 0;
@@ -636,7 +644,7 @@ mod tests {
                 .as_bytes(),
         );
 
-        let output_path = PathBuf::from("tests/output/dummy-1.fn6");
+        let output_path = PathBuf::from("tests/output/dummy-1-multi.fn6");
         if output_path.exists() {
             std::fs::remove_file(&output_path).unwrap();
         }
@@ -750,9 +758,7 @@ mod tests {
             &reference_hash,
         )[0];
 
-        let output1: Mutex<Box<dyn Write + Send>> = Mutex::new(Box::new(BufWriter::new(
-            std::fs::File::create(PathBuf::from("tests/output/dummy_distances.txt")).unwrap(),
-        )));
+        let output1 = get_writer(Some(PathBuf::from("tests/output/dummy_distances.txt")));
 
         // We know these samples are identical, so distance should be 0
         get_distances(
@@ -764,9 +770,7 @@ mod tests {
         let lines = output.lines().collect::<Vec<&str>>();
         assert_eq!(lines.len(), 0);
 
-        let output2: Mutex<Box<dyn Write + Send>> = Mutex::new(Box::new(BufWriter::new(
-            std::fs::File::create(PathBuf::from("tests/output/dummy_distances2.txt")).unwrap(),
-        )));
+        let output2 = get_writer(Some(PathBuf::from("tests/output/dummy_distances2.txt")));
 
         // The 2.fn6 sample has a SNP at position 0, so distance should be 1 to everything else
         get_distances(
