@@ -217,6 +217,8 @@ pub fn get_distances(
     for (name1, name2, d) in dist_lock.iter() {
         writeln!(&mut o, "{} {} {}", name1, name2, d).unwrap();
     }
+    // Make sure the output is flushed so everything is written after each fn call
+    o.flush().unwrap();
 }
 
 /// Compute all distances from a vec of genome save file paths. This is the main function for the "compute" command in the CLI. It loads the samples, figures out what comparisons to do, and then calls `get_distances` to compute and print the distances.
@@ -763,7 +765,7 @@ mod tests {
         assert_eq!(lines.len(), 0);
 
         let output2: Mutex<Box<dyn Write + Send>> = Mutex::new(Box::new(BufWriter::new(
-            std::fs::File::create(PathBuf::from("tests/output/dummy_distances.txt")).unwrap(),
+            std::fs::File::create(PathBuf::from("tests/output/dummy_distances2.txt")).unwrap(),
         )));
 
         // The 2.fn6 sample has a SNP at position 0, so distance should be 1 to everything else
