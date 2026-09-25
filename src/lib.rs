@@ -9,6 +9,7 @@ use std::{
 };
 
 use crate::sample::ArchivedSample;
+use flate2::write::GzEncoder;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -170,6 +171,29 @@ pub fn reference_compress(
     samples
 }
 
+/// Given the option of an output path, return a mutex-wrapped writer that can be used to write to the output path.
+/// This will seemlessly compress output if the output path has a .gz extension.
+/// If the output path is None, return a mutex-wrapped stdout writer.
+/// If the output path is Some, return a mutex-wrapped file writer.
+/// If the output path has a .gz extension, return a mutex-wrapped GzEncoder writer.
+fn get_writer(output: Option<PathBuf>) -> Mutex<Box<dyn Write + Send>> {
+    let output: Mutex<Box<dyn Write + Send>> = match output {
+        Some(path) => {
+            let writer = BufWriter::new(std::fs::File::create(path.clone()).unwrap());
+            if path.extension() == Some(OsStr::new("gz")) {
+                Mutex::new(Box::new(GzEncoder::new(
+                    writer,
+                    flate2::Compression::default(),
+                )))
+            } else {
+                Mutex::new(Box::new(writer))
+            }
+        }
+        None => Mutex::new(Box::new(BufWriter::new(std::io::stdout()))),
+    };
+    output
+}
+
 /// Given a set of comparisons to do, compute the distances and print them to stdout as they are computed. This uses multithreading for performance, and a mutex to ensure that the output is not interleaved.
 ///
 /// # Arguments
@@ -182,16 +206,9 @@ pub fn reference_compress(
 pub fn get_distances(
     comparisons: Vec<(&Vec<u8>, &Vec<u8>)>,
     cutoff: usize,
-    output: Option<PathBuf>,
+    output: &Mutex<Box<dyn Write + Send>>,
 ) {
     let distances: Mutex<Vec<(String, String, usize)>> = Mutex::new(Vec::new());
-
-    let output: Mutex<Box<dyn Write + Send>> = match output {
-        Some(path) => Mutex::new(Box::new(BufWriter::new(
-            std::fs::File::create(path).unwrap(),
-        ))),
-        None => Mutex::new(Box::new(BufWriter::new(std::io::stdout()))),
-    };
 
     let _ = comparisons
         .par_iter()
@@ -224,6 +241,8 @@ pub fn get_distances(
     for (name1, name2, d) in dist_lock.iter() {
         writeln!(&mut o, "{} {} {}", name1, name2, d).unwrap();
     }
+    // Make sure the output is flushed so everything is written after each fn call
+    o.flush().unwrap();
 }
 
 /// Compute all distances from a vec of genome save file paths. This is the main function for the "compute" command in the CLI. It loads the samples, figures out what comparisons to do, and then calls `get_distances` to compute and print the distances.
@@ -262,6 +281,7 @@ pub fn compute(
             start_time.elapsed()
         );
     }
+    let output = get_writer(output);
 
     // Figure out what comparisons we need to do
     let mut n_comps: u64 = 0;
@@ -271,7 +291,7 @@ pub fn compute(
             comparisons.push((sample1, sample2));
             if comparisons.len() > MAX_COMPARISONS_IN_MEMORY {
                 // We're doing a lot of comparisons, so batch them up to avoid excessive RAM usage
-                get_distances(comparisons, cutoff, output.clone());
+                get_distances(comparisons, cutoff, &output);
                 comparisons = Vec::new();
             }
             n_comps += 1;
@@ -279,7 +299,7 @@ pub fn compute(
     }
 
     // Get last distances
-    get_distances(comparisons, cutoff, output);
+    get_distances(comparisons, cutoff, &output);
 
     if debug {
         eprintln!(
@@ -317,6 +337,8 @@ pub fn add_samples(
     let existing_samples = load_arch_saves(existing, reference, mask, mask_hash, reference_hash);
     let new_samples = load_arch_saves(new_samples, reference, mask, mask_hash, reference_hash);
 
+    let output = get_writer(output);
+
     let mut comparisons: Vec<(&Vec<u8>, &Vec<u8>)> = Vec::new();
     let mut n_comps: u64 = 0;
     // Compare each existing sample to each new sample
@@ -325,7 +347,7 @@ pub fn add_samples(
             comparisons.push((sample1, sample2));
             if comparisons.len() > MAX_COMPARISONS_IN_MEMORY {
                 // We're doing a lot of comparisons, so batch them up to avoid excessive RAM usage
-                get_distances(comparisons, cutoff, output.clone());
+                get_distances(comparisons, cutoff, &output);
                 comparisons = Vec::new();
             }
             n_comps += 1;
@@ -337,14 +359,14 @@ pub fn add_samples(
             comparisons.push((sample1, sample2));
             if comparisons.len() > MAX_COMPARISONS_IN_MEMORY {
                 // We're doing a lot of comparisons, so batch them up to avoid excessive RAM usage
-                get_distances(comparisons, cutoff, output.clone());
+                get_distances(comparisons, cutoff, &output);
                 comparisons = Vec::new();
             }
             n_comps += 1;
         }
     }
 
-    get_distances(comparisons, cutoff, output);
+    get_distances(comparisons, cutoff, &output);
 
     if debug {
         eprintln!(
@@ -627,7 +649,7 @@ mod tests {
                 .as_bytes(),
         );
 
-        let output_path = PathBuf::from("tests/output/dummy-1.fn6");
+        let output_path = PathBuf::from("tests/output/dummy-1-multi.fn6");
         if output_path.exists() {
             std::fs::remove_file(&output_path).unwrap();
         }
@@ -741,21 +763,25 @@ mod tests {
             &reference_hash,
         )[0];
 
+        let output1 = get_writer(Some(PathBuf::from("tests/output/dummy_distances.txt")));
+
         // We know these samples are identical, so distance should be 0
         get_distances(
             vec![(b_fasta, b_fn5), (b_fasta, b_fn6), (b_fn5, b_fn6)],
             10,
-            Some(PathBuf::from("tests/output/dummy_distances.txt")),
+            &output1,
         );
         let output = std::fs::read_to_string("tests/output/dummy_distances.txt").unwrap();
         let lines = output.lines().collect::<Vec<&str>>();
         assert_eq!(lines.len(), 0);
 
+        let output2 = get_writer(Some(PathBuf::from("tests/output/dummy_distances2.txt")));
+
         // The 2.fn6 sample has a SNP at position 0, so distance should be 1 to everything else
         get_distances(
             vec![(b_fasta, b2_fn6), (b_fn5, b2_fn6), (b_fn6, b2_fn6)],
             10,
-            Some(PathBuf::from("tests/output/dummy_distances2.txt")),
+            &output2,
         );
         let output = std::fs::read_to_string("tests/output/dummy_distances2.txt").unwrap();
         let lines = output.lines().collect::<Vec<&str>>();
