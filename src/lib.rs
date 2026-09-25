@@ -171,10 +171,10 @@ pub fn reference_compress(
     samples
 }
 
-/// Given the option of an output path, return a mutex-wrapped writer that can be used to write to the output path. 
+/// Given the option of an output path, return a mutex-wrapped writer that can be used to write to the output path.
 /// This will seemlessly compress output if the output path has a .gz extension.
-/// If the output path is None, return a mutex-wrapped stdout writer. 
-/// If the output path is Some, return a mutex-wrapped file writer. 
+/// If the output path is None, return a mutex-wrapped stdout writer.
+/// If the output path is Some, return a mutex-wrapped file writer.
 /// If the output path has a .gz extension, return a mutex-wrapped GzEncoder writer.
 fn get_writer(output: Option<PathBuf>) -> Mutex<Box<dyn Write + Send>> {
     let output: Mutex<Box<dyn Write + Send>> = match output {
